@@ -9,5 +9,5 @@ clang_bin=clang++
 
 shared_flags="-I../include -Wall -emit-llvm -std=c++14 -fno-use-cxa-atexit"
 
-$clang_bin -O0 -g $extra_flags $shared_flags -c helloworld.cpp -o helloworld.bc
+$clang_bin -O0 -g $shared_flags -c helloworld.cpp -o helloworld.bc
 
