@@ -7,16 +7,11 @@ set -Eeuo pipefail
 
 clang_bin=clang++
 
-if test $# -eq 1; then
-    projroot="$1"
-else
-    echo "Must specify project root"
-    exit -1
-fi
+dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 shared_flags="-I../include -Wall -emit-llvm -std=c++14 -fno-use-cxa-atexit"
-
-cd $projroot/bitcode
+qspecdir="$dir/../bitcode"
+cd $qspecdir
 
 (
 cd avmaster
