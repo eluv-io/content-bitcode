@@ -1,8 +1,8 @@
 # Bitcode Documentation:
 
-Bitcode is the mechanism developers can use to orchestrate the fabric at a machine code level.  The bitcode produced by clang in its emit-llvm mode is directly loadable and callable by the fabric daemon.
+Bitcode is the mechanism developers can use to orchestrate the fabric at a machine code level.  The bitcode produced by `clang` in its `emit-llvm` mode is directly loadable and callable by the fabric daemon.
 
-To deploy on Linux, the preferred method is to run build and run the `Dockerfile`
+To deploy on Linux, the preferred method is to build and run the `Dockerfile`
 
 ## Docker Instructions
 
@@ -14,14 +14,6 @@ After cloning this repository, there is a `Dockerfile` that is in the base of th
 docker build -t eluvio-content-bitcode .
 ```
 
-To run this Docker image after it has been built, it is a matter ot running `docker run`:
-
-```bash
-docker run -ti eluvio-content-bitcode
-```
-
-This simple instantiation does not mount any volumes and will keep old instances around after running.
-
 ### Downloading the Docker Image
 
 The following will download and run a pre-built image:
@@ -31,14 +23,46 @@ docker pull koupwassu/content-bitcode
 docker run -ti koupwassu/content-bitcode
 ```
 
+### Running the Docker image
+
+To run the Docker image after it has been built, it is a simply run `docker run` like so:
+
+```bash
+docker run -ti eluvio-content-bitcode
+```
+
+If usin the pre-built docker image, simply change the name of the image to run:
+
+
+```bash
+docker run -ti koupwassu/content-bitcode
+```
+
+These simple instantiations do not mount any volumes and will keep old instances around after running.  If unfamiliar with docker, here is an example `docker` command to mount the current working directory to `/mystuff` within the container, and to remove the image instance after container exit (using the locally built image):
+
+```bash
+docker run -ti --rm=true -v $(pwd):/mystuff eluvio-content-bitcode
+```
+
 ## Installation:
 
-If running not in `docker`, the use the following:
+If not running in `docker`, use the following:
 
 Prerequisites:
 - linux
     ```bash
-    sudo apt install build-essential subversion cmake python3-dev libncurses5-dev libxml2-dev libedit-dev swig doxygen graphviz xz-utils
+    sudo apt install \
+        build-essential \
+        subversion\
+        cmake\
+        python3-dev\
+        libncurses5-dev\
+        libxml2-dev\
+        libedit-dev\
+        swig\
+        doxygen\
+        graphviz\
+        xz-utils
     git clone https://bitbucket.org/sol_prog/clang-7-ubuntu-18.04-x86-64.git
     cd clang-7-ubuntu-18.04-x86-64
     tar xf clang_7.0.0.tar.xz
@@ -48,7 +72,11 @@ Prerequisites:
     ```
 
 - mac : xcode must be installed and clang available at the command line
-  - e.g. mymac>which clang --> `/usr/bin/clang`
+  - e.g. 
+      ```bash
+      mymac> which clang
+      /usr/bin/clang
+      ```
 
 ##  Building:
   - `content-bitcode/scripts/build_all.sh`
@@ -57,7 +85,8 @@ Prerequisites:
     - Builds `helloworld.bc`
 
 ##  Deploying Content:
-  - Currently there is only one script to deploy called `populate-dev.sh` in the helloworld folder.  This script will drive the fabric using a combination of bitcode and the fabrics http handlers.  This script will:     - create a new content library
+  - Currently there is only one script to deploy called `populate-dev.sh` in the helloworld folder.  This script will drive the fabric using a combination of bitcode and the fabrics http handlers.  This script will:
+    - create a new content library
     - publish helloworld bitcode type into it
     - create part indexed by "image"
     - deliver a full URL to the base of the rep handler
