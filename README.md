@@ -118,6 +118,49 @@ BEGIN_MODULE_MAP()
 END_MODULE_MAP()
 ```
 
-In this map above we will support /rep using content we will also support a phash/call/ad and phash/call/tagger.  Both these functions also have the same prototype
+In this map above we will support /rep using content we will also support a phash/call/helloword. This function also has the same prototype:
 
+```c++
+std::pair<nlohmann::json,int> helloworld(BitCodeCallContext* ctx,  JPCParams& p)
+```
 It is recommended to place the module map at the bottom of the source file as c requires definition before use and the macros use an assumed previously defined set of functions.
+
+## HttpParams
+
+The class is small but useful as it handles the processing of all HttpParams from json into native std classes.
+
+```c++
+	class HttpParams{
+	public:
+		HttpParams(){}
+		std::pair<std::string,int> Init(JPCParams& j_params){
+			try{
+				if (j_params.find("http") != j_params.end()){
+					std::cout << j_params.dump() << std::endl;
+					auto j_http = j_params["http"];
+					_verb = j_http["verb"];
+					_path = j_http["path"];
+					_headers = j_http["headers"];
+					auto& q = j_http["query"];
+
+					for (auto& element : q.items()) {
+						_map[element.key()] = element.value()[0];
+					}
+					return make_pair("success", 0);
+				}
+				return make_pair("could not find http in parameters", -1);
+			}
+			catch (json::exception& e)
+			{
+				return make_pair(e.what(), e.id);
+			}
+		}
+		std::map<std::string, std::string>	_map;
+		std::string _verb;
+		std::string _path;
+		nlohmann::json _headers;
+	};
+
+```
+
+HttpParams purpose is to do automatic processing of the JSON passed to the bitcode layer from Golang detailing the http conversation.  This class simply caches the data in a call to Init that all externally callable clients call. Important info is cached in _map which will contain any and all query params at call time.  The other fields should be self describing.
