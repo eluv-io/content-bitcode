@@ -61,7 +61,7 @@ Prerequisites:
 
 ## Mac
 
-XCode must be installed and `clang` available at the command line
+[Xcode](https://developer.apple.com/xcode/) must be installed and `clang` available at the command line
 
 ```bash
 mymac> which clang
