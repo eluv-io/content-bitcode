@@ -19,8 +19,8 @@ docker build -t eluvio-content-bitcode .
 The following will download and run a pre-built image:
 
 ```bash
-docker pull koupwassu/content-bitcode
-docker run -ti koupwassu/content-bitcode
+docker pull eluvio/content-bitcode
+docker run -ti eluvio/content-bitcode
 ```
 
 ### Running the Docker image
@@ -35,7 +35,7 @@ If usin the pre-built docker image, simply change the name of the image to run:
 
 
 ```bash
-docker run -ti koupwassu/content-bitcode
+docker run -ti eluvio/content-bitcode
 ```
 
 These simple instantiations do not mount any volumes and will keep old instances around after running.  If unfamiliar with docker, here is an example `docker` command to mount the current working directory to `/mystuff` within the container, and to remove the image instance after container exit (using the locally built image):
