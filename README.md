@@ -2,9 +2,13 @@
 
 Bitcode is the mechanism developers can use to orchestrate the fabric at a machine code level.  The bitcode produced by `clang` in its `emit-llvm` mode is directly loadable and callable by the fabric daemon.
 
-To deploy on Linux, the preferred method is to build and run the `Dockerfile`
+There are 3 methods for getting setup:
 
-## Docker Instructions
+1. Docker (Ubuntu 18.04 based) -- **preferred**
+2. Linux (Instructions presume Ubuntu)
+3. Mac
+
+## Using Docker (preferred)
 
 ### Building the Dockerfile
 
@@ -14,42 +18,26 @@ After cloning this repository, there is a `Dockerfile` that is in the base of th
 docker build -t eluvio-content-bitcode .
 ```
 
-### Downloading the Docker Image
-
-The following will download and run a pre-built image:
-
-```bash
-docker pull eluvio/content-bitcode
-docker run -ti eluvio/content-bitcode
-```
+If there are changes to the `git` repo, this command will need to be re-run after a `git pull`.
 
 ### Running the Docker image
 
-To run the Docker image after it has been built, it is a simply run `docker run` like so:
+To run the Docker image after it has been built, the simplest way is to run `docker run` like so:
 
 ```bash
 docker run -ti eluvio-content-bitcode
 ```
 
-If usin the pre-built docker image, simply change the name of the image to run:
-
-
-```bash
-docker run -ti eluvio/content-bitcode
-```
-
-These simple instantiations do not mount any volumes and will keep old instances around after running.  If unfamiliar with docker, here is an example `docker` command to mount the current working directory to `/mystuff` within the container, and to remove the image instance after container exit (using the locally built image):
+This simple instantiation does not mount any volumes and will keep old instances around after running.  If unfamiliar with docker, here is an example `docker` command to mount the current working directory to `/mystuff` within the container, and to remove the image instance after container exit (using the locally built image):
 
 ```bash
 docker run -ti --rm=true -v $(pwd):/mystuff eluvio-content-bitcode
 ```
 
-## Installation:
-
-If not running in `docker`, use the following:
+## Linux (Ubuntu 18.04)
 
 Prerequisites:
-- linux
+- These steps get the correct `clang` and toolchain in place
     ```bash
     sudo apt install \
         build-essential \
@@ -71,12 +59,16 @@ Prerequisites:
     export LD_LIBRARY_PATH=/usr/local/clang_7.0.0/lib:$LD_LIBRARY_PATH
     ```
 
-- mac : xcode must be installed and clang available at the command line
-  - e.g. 
-      ```bash
-      mymac> which clang
-      /usr/bin/clang
-      ```
+## Mac
+
+XCode must be installed and `clang` available at the command line
+
+```bash
+mymac> which clang
+/usr/bin/clang
+```
+
+# Working with the bitcode
 
 ##  Building:
   - `content-bitcode/scripts/build_all.sh`
@@ -93,10 +85,9 @@ Prerequisites:
 
 ## Running
 Once deployed to a fabric node the bitcode is callable using curl or a browser. The helloworld sample responds to three handler calls
-  - http://base_url/libid/q/phash/rep/image
+  - `http://base_url/libid/q/phash/rep/image`
     - returns an image as binary
-  - http://base_url/libid/q/phash/rep/helloworld
+  - `http://base_url/libid/q/phash/rep/helloworld`
     - return html that references rep/image
-  - http://base_url/libid/q/phash/call/helloworld
+  - `http://base_url/libid/q/phash/call/helloworld`
     - returns text with info from fabric
-

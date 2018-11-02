@@ -18,9 +18,6 @@ RUN apt-get update && \
         curl \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /src
-RUN git clone https://github.com/eluv-io/content-bitcode.git
-
 WORKDIR /scratch
 RUN git clone https://bitbucket.org/sol_prog/clang-7-ubuntu-18.04-x86-64.git && \
     cd clang-7-ubuntu-18.04-x86-64 && \
@@ -32,6 +29,10 @@ ENV PATH=/usr/local/clang_7.0.0/bin:${PATH}
 ENV LD_LIBRARY_PATH=/usr/local/clang_7.0.0/lib:${LD_LIBRARY_PATH}
 
 WORKDIR /src/content-bitcode
+COPY LICENSE /src/content-bitcode/
+COPY bitcode/ /src/content-bitcode/bitcode/
+COPY scripts/ /src/content-bitcode/scripts/
+
 RUN scripts/build-all.sh
 
 ENTRYPOINT /bin/bash
