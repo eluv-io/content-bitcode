@@ -24,7 +24,12 @@ This simple instantiation does not mount any volumes and will keep old instances
 
 ### Downloading the Docker Image
 
-**TBD**
+The following will download and run a pre-built image:
+
+```bash
+docker pull koupwassu/content-bitcode
+docker run -ti koupwassu/content-bitcode
+```
 
 ## Installation:
 
