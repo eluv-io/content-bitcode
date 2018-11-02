@@ -91,3 +91,33 @@ Once deployed to a fabric node the bitcode is callable using curl or a browser. 
     - return html that references rep/image
   - `http://base_url/libid/q/phash/call/helloworld`
     - returns text with info from fabric
+
+## Development Notes
+  - The fabric bitcode layer is LLVM.  Our current library support is for LLVM v7. C++ is the current supported language
+  - JSON is processed in bitcode using nlohmann::json (included in repo) https://github.com/nlohmann/json
+  - All externally callable llvm bitcode functions must have the following prototype C++:
+    - std::pair<nlohmann::json, int> myfunc(BitCodeCallContext* ctx, char *url);
+    - BitCodeCallContext is provided in content-bitcode/include/eluvio/bitcode_context.h
+
+## BitCodeCallContext
+    In effect the context provides a wrapper around the 3 entry points Golang exports to  LLVM/bitcode layer
+    - extern "C" char*    JPC(char*);
+    - extern "C" char*    Write(char*, char*, char*,int);
+    - extern "C" char*    Read(char*, char*, char*,int);
+    ** None of these should be called by the developer, they are for illustrative purpose only
+    The context manages communication and synchroniztion bewteen Go and LLVM wherein command are issued through JPC and streaming of results and input over Write and Read respectively.
+
+## MODULE_MAP
+The module map provides the bitcode_context info as to what functions are provided by the bitcode module. As described above all functions must have the required prototype.
+
+std::pair<nlohmann::json, int> content(BitCodeCallContext* ctx, char *url); is a special function in that it will be called for any /rep based call.
+```c++
+BEGIN_MODULE_MAP()
+    MODULE_MAP_ENTRY(content)
+    MODULE_MAP_ENTRY(helloworld)
+END_MODULE_MAP()
+```
+
+In this map above we will support /rep using content we will also support a phash/call/ad and phash/call/tagger.  Both these functions also have the same prototype
+
+It is recommended to place the module map at the bottom of the source file as c requires definition before use and the macros use an assumed previously defined set of functions.
