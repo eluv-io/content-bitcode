@@ -23,6 +23,12 @@ $clang_bin -O0 -g $shared_flags \
 )
 
 (
+cd avlive
+$clang_bin $shared_flags \
+    -c live_rtp.cpp -o avlive.rtp.bc
+)
+
+(
 cd submission
 $clang_bin -O0 $shared_flags \
     -c submission.cpp -o submission.bc
@@ -32,5 +38,19 @@ $clang_bin -O0 $shared_flags \
 cd library
 $clang_bin -O0 $shared_flags \
     -c library.cpp -o library.bc
+)
+
+
+(
+cd video
+$clang_bin $shared_flags \
+    -c video.cpp -o video.bc
+)
+
+
+(
+cd search
+$clang_bin $shared_flags \
+    -c search.cpp -o search.bc
 )
 
