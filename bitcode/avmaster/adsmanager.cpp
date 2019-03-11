@@ -14,7 +14,10 @@
 #include <string>
 #include <vector>
 #include <set>
-#include <nlohmann/json.hpp>
+#include <sstream>
+#include <iostream>
+
+#include "nlohmann/json.hpp"
 #include "eluvio/argutils.h"
 #include "eluvio/utils.h"
 #include "eluvio/el_cgo_interface.h"
@@ -22,7 +25,7 @@
 
 using namespace elv_context;
 using nlohmann::json;
-
+typedef std::map<std::string, std::string>  AdsMap;
 
 /*
  * find_ads()
@@ -34,19 +37,22 @@ using nlohmann::json;
  * tags   - vector of strings with tags of interest
  */
 std::string
-find_ads(BitCodeCallContext* ctx, char* qlibid, char* qhash, std::set<std::string>& tags) {
+find_ads(BitCodeCallContext* ctx, std::set<std::string>& tags) {
 
-    auto kvPkg = CHAR_BASED_AUTO_RELEASE(ctx->SQMDGetJSON((char*)"assets"));
+    auto assets = ctx->SQMDGetJSON("assets");
+    if (assets.second.IsError()){
+        LOG_ERROR(ctx, "getting assets", "inner_error", assets.second.getJSON());
+        return "";
+    }
 
-    std::string kvPkgStr = kvPkg.get();
-    auto jsonPkg = json::parse(kvPkg.get());
+    auto& jsonPkg = assets.first;
     std::map<string, float> matches;
     std::map<string, float>::iterator itProbs;
     float max = 0.0;
     std::string maxTag;
     std::string maxId;
 
-    std::cout << "ADSMG assets " << jsonPkg << std::endl;
+    LOG_DEBUG(ctx, "AdsManager:", "assets", jsonPkg.dump());
 
     for (auto& tag : tags) {
         // iterate the array
@@ -64,13 +70,13 @@ find_ads(BitCodeCallContext* ctx, char* qlibid, char* qhash, std::set<std::strin
 
     std::string ad_id = maxId;
     std::string ad_contract_address = "";
-    auto caddr = CHAR_BASED_AUTO_RELEASE(ctx->SQMDGetJSON((char*)"eluv.contract_address"));
-    if (caddr.get() != NULL) {
-        auto json_caddr = json::parse(caddr.get());
-        std::cout << "ADSMG caddr " << caddr.get() << std::endl;
+    auto caddr = ctx->SQMDGetJSON("eluv.contract_address");
+    if (!caddr.second.IsError()) {
+        auto& json_caddr = caddr.first;
+        LOG_DEBUG(ctx, "AdsManager:", "caddr",(const char*)json_caddr.dump().c_str());
         ad_contract_address = json_caddr.get<std::string>();
     } else {
-        std::cout << "ADSMG contract address not found" << std::endl;
+        LOG_DEBUG(ctx, "AdsManager:", "contract address not found");
     }
 
     /* Example response format
@@ -84,7 +90,7 @@ find_ads(BitCodeCallContext* ctx, char* qlibid, char* qhash, std::set<std::strin
     }
     */
     json res_asset;
-    res_asset["qlibid"] = qlibid;
+    res_asset["qlibid"] = ctx->LibId();
     res_asset["id"] = ad_id;
     res_asset["contract_address"] = ad_contract_address;
 
@@ -95,7 +101,7 @@ find_ads(BitCodeCallContext* ctx, char* qlibid, char* qhash, std::set<std::strin
 
     std::string res_str = res.dump();
 
-    printf("ADSMG find_ads %s\n", res_str.c_str()); fflush(stdout);
+    LOG_DEBUG(ctx, "AdsManager:", "JSON", res_str.c_str());;
 
     return res_str;
 }
@@ -122,7 +128,28 @@ int timecode_to_millisec(const char* timecode){
     }
     return (hour*3600 + minutes*60 + sec) * 1000 + milli;
 }
+std::pair<std::map<std::string, double>, E>
+commonTags(BitCodeCallContext* ctx, nlohmann::json& json_tags, std::string&  timein, std::string&  timeout){
+    LOG_DEBUG(ctx, "commonTags:", "video_tags", json_tags.dump());
+    std::map<std::string, double> s;
+    int timein_converted = timecode_to_millisec(timein.c_str());
+    int timeout_converted = timecode_to_millisec(timeout.c_str());
 
+    for (auto& el : json_tags){
+        int in, out;
+        in = timecode_to_millisec(el["time_in"].get<std::string>().c_str());
+        out = timecode_to_millisec(el["time_out"].get<std::string>().c_str());
+        if (in >= timein_converted && out <= timeout_converted) {
+            for (auto& tag : el["tags"]){
+                if (tag["score"].type() != nlohmann::detail::value_t::number_float){
+                    return std::make_pair(s, E("common tags parsing", "tag", tag.dump()));
+                }
+                s[tag["tag"].get<std::string>()] = tag["score"].get<double>();
+            }
+        }
+    }
+    return std::make_pair(s, E(false));
+}
 /*
  * Internal function - retrieve video tags from a specified content object.
  *
@@ -139,34 +166,82 @@ int timecode_to_millisec(const char* timecode){
  *   ]
  *
  */
-std::set<std::string>
-video_tags(BitCodeCallContext* ctx, char *qlibid, char *qhash, char *timecode){
-    std::set<std::string> s;
-    auto tagsjs = CHAR_BASED_AUTO_RELEASE(ctx->SQMDGetJSON((char*)"video_tags"));
-    if (tagsjs.get() == 0 || strcmp(tagsjs.get(),"") == 0){
-        printf("fabric metadata has no element video_tags or its empty\n");
-        return s; //. empty
+std::pair<std::map<std::string, double>, E>
+video_tags(BitCodeCallContext* ctx, std::string& qlibid, std::string&  qhash, std::string&  timein, std::string&  timeout){
+    LOG_DEBUG(ctx, "video_tags");
+    std::map<std::string, double> s;
+    auto tagsjs = ctx->SQMDGetJSON(qlibid.c_str(), qhash.c_str(), "video_tags");
+    if (tagsjs.second.IsError()){
+        LOG_WARN(ctx, "fabric metadata has no element video_tags or its empty");
+        return std::make_pair(s,E(false)); //. empty
     }
-    auto json_tags = json::parse(tagsjs.get());
+    return commonTags(ctx, tagsjs.first, timein, timeout);
+}
 
-    printf("ADSMG video_tags %s\n", tagsjs.get()); fflush(stdout);
 
-    int time_converted = timecode_to_millisec(timecode);
+std::pair<std::map<std::string, double>, E>
+video_tags(BitCodeCallContext* ctx, std::string hash, std::string&  timein, std::string&  timeout){
+    LOG_DEBUG(ctx, "video_tags");
+    std::map<std::string, double> s;
+    auto tagsjs = ctx->SQMDGetJSON(hash.c_str(), "video_tags");
+    if (tagsjs.second.IsError()){
+        LOG_WARN(ctx, "fabric metadata has no element video_tags or its empty");
+        return std::make_pair(s,E(false)); //. empty
+    }
+    return commonTags(ctx, tagsjs.first, timein, timeout);
+}
 
-    for (auto& el : json_tags){
-        int in, out;
-        in = timecode_to_millisec(el["time_in"].get<std::string>().c_str());
-        out = timecode_to_millisec(el["time_out"].get<std::string>().c_str());
-        if (timecode == NULL ||
-            (in >= 0 && out >= 0 && time_converted >= 0 && in <= time_converted && out >= time_converted)) {
-            for (auto& tag : el["tags"]){
-                s.insert(tag["tag"].get<std::string>());
+elv_return_type GetAdWeights(BitCodeCallContext* ctx, std::string& params){
+    std::istringstream p(params);
+    std::string sParseComma;
+    nlohmann::json j;
+    AdsMap mapRet;
+    while (getline(p, sParseComma, ',')) {
+        if (strchr(sParseComma.c_str(), ':') != 0){
+            auto colonLoc = sParseComma.find(':');
+            auto key = sParseComma.substr(0, colonLoc);
+            auto value = sParseComma.substr(colonLoc+1, sParseComma.size() - colonLoc);
+            LOG_DEBUG(ctx, "parsing tags", "key", key, "value", value);
+            mapRet[key] = value;
+        }else{
+            mapRet[sParseComma] = "100";
+        }
+
+    }
+    j["return"] = mapRet;
+    return ctx->make_success(j);
+}
+
+void addToMap(std::map<std::string, double>& dst,std::map<std::string, double>& src){
+    for (auto& el : src){
+        if (dst.find(el.first) == dst.end()){
+            src[el.first] = el.second;
+        }else{ // found choose bigger
+            if (dst[el.first] > src[el.first]){
+                src[el.first] = el.second;
             }
         }
     }
+}
 
+bool compareMatches(std::map<std::string, string>& left, std::map<std::string, string>& right){
+    try{
+        auto lVal = atof(left["payout"].c_str());
+        auto rVal = atof(right["payout"].c_str());
+        auto lScore = atof(left["score"].c_str());
+        auto rScore = atof(right["score"].c_str());
+        if (lVal*lScore >= rVal*rScore)
+            return true;
+        return false;
+    }
+    catch(std::exception& e){
+        if (left.find("ctx") != left.end()){
+            BitCodeCallContext* ctx = (BitCodeCallContext*)atol(left["ctx"].c_str());
+            LOG_ERROR(ctx, "compareMatches threw exception", "what", e.what());
+        }
+    }
+    return false;
 
-    return s;
 }
 
 /*
@@ -175,73 +250,142 @@ video_tags(BitCodeCallContext* ctx, char *qlibid, char *qhash, char *timecode){
  * /call/ads?qlibid="xxx"?id="id_or_hash"&time=00:00:01.000
  *
  * Aguments:
- * - qlibid
- * - qhash
- * - viewer content qlibid
- * - viewer content content id
- * - viewer timecode (optional)
+ * - format
+ * - library
+ * - content_id
+ * - time_in
+ * - time_out
+ *  - max_ads (optional default to 1)
  *
  * Returns the required 'output spec' for the '/call' API
  * - content type 'application/json'
  * - list of keys and values to be represented as JSON "key":"value" in the return body
  */
-std::pair<nlohmann::json, int> ads(BitCodeCallContext* ctx, JPCParams& p){
-    HttpParams params;
-    auto p_res = params.Init(p);
-    if (p_res.second != 0){
-        return ctx->make_error(p_res.first, p_res.second);
+elv_return_type ads(BitCodeCallContext* ctx, JPCParams& p){
+    auto params = ctx->QueryParams(p);
+    std::string time_in = "00:00:00.000";
+    std::string time_out = "99:59:59.999";
+    AdsMap adMap;
+    std::map<std::string,double> videoTags;
+    auto ad_count = 1; //default
+    if (params.second.IsError()){
+        return ctx->make_error("Query Parameters from JSON", params.second);
     }
 
-    auto it_libid = params._map.find("qlibid");
-    if (it_libid == params._map.end()){
-        printf("libid not provided\n");
-        return ctx->make_error("libid not provided", -1);
+    auto it_viewer_timein = params.first.find("time_in");
+    if (it_viewer_timein == params.first.end()){
+        LOG_DEBUG(ctx, "timein not provided");
+    }else{
+       time_in = it_viewer_timein->second;
     }
 
-    auto it_qhash = params._map.find("qwtoken");
-    if (it_qhash == params._map.end()){
-        printf("qhash not provided\n");
-        return ctx->make_error("qhash not provided", -2);
+    auto it_viewer_timeout = params.first.find("time_out");
+    if (it_viewer_timeout == params.first.end()){
+        LOG_DEBUG(ctx, "timeout not provided");
+    }else{
+       time_out = it_viewer_timeout->second;
+    }
+    auto it_ad_count = params.first.find("max_ads");
+    if (it_ad_count == params.first.end()){
+        LOG_DEBUG(ctx, "max_ads not provided", "max_ads", ad_count);
+    }else{
+        ad_count = atoi(it_ad_count->second.c_str());
     }
 
-    auto it_viewer_libid = params._map.find("viewer_qlib_id");
-    if (it_libid == params._map.end()){
-        printf("viewer libid not provided\n");
-        return ctx->make_error("viewer libid not provided", -3);
+    auto campaigns_library = ctx->SQMDGetString("campaigns_library");
+    if (campaigns_library == ""){
+        const char* msg = "Could not find campaigns_library";
+        ctx->make_error(msg, E(msg));
     }
 
-    auto it_viewer_id = params._map.find("viewer_id");
-    if (it_viewer_id == params._map.end()){
-        printf("viewerid not provided\n");
-        return ctx->make_error("viewerid not provided", -4);
+    auto it_tags = params.first.find("tags");
+    if (it_tags == params.first.end()){
+        LOG_DEBUG(ctx, "tags not provided");
+    }else{
+        auto ret = GetAdWeights(ctx, it_tags->second);
+        if (ret.second.IsError())
+            return ctx->make_error("ads", ret.second);
+        adMap = ret.first["return"].get<AdsMap>();
     }
-    auto it_viewer_timecode = params._map.find("viewer_timecode");
-    if (it_viewer_timecode == params._map.end()){
-        printf("viewer timecode not provided\n");
-        return ctx->make_error("viewer timecode not provided", -5);
+
+
+    auto it_content_hash = params.first.find("content_hash");
+    if (it_content_hash != params.first.end()){
+        LOG_DEBUG(ctx, "ads", "content_hash", it_content_hash->second);
+        auto vtRet  = video_tags(ctx, it_content_hash->second.c_str(), time_in,time_out);
+        if (vtRet.second.IsError())
+            return ctx->make_error("ads failed to parse video_tags", vtRet.second);
+        videoTags = vtRet.first;
+    }else{
+        auto it_viewer_lib = params.first.find("library");
+        if (it_viewer_lib == params.first.end()){
+            const char* msg="library not provided";
+            return ctx->make_error(msg, E(msg).Kind(E::BadHttpParams));
+        }
+        auto it_viewer_content_id = params.first.find("content_id");
+        if (it_viewer_content_id == params.first.end()){
+            const char* msg="content_id not provided";
+            return ctx->make_error(msg, E(msg).Kind(E::BadHttpParams));
+        }
+        auto viewer_id = it_viewer_lib->second;
+        auto viewer_content_id = it_viewer_content_id->second;
+
+        LOG_DEBUG(ctx, "AdsManager Viewer:" ,"qlibid", campaigns_library, "id", viewer_id);
+        auto vtRet = video_tags(ctx, viewer_id, viewer_content_id, time_in,time_out);
+        if (vtRet.second.IsError())
+            return ctx->make_error("ads failed to parse video_tags", vtRet.second);
+        videoTags = vtRet.first;
     }
 
-    char *qlibid = (char*)it_libid->second.c_str();
-    char *qhash = (char*)it_qhash->second.c_str();
-    printf("ADSMG lib=%s qhash=%s\n", qlibid, qhash);fflush(stdout);
+    auto libsRet = ctx->QListContentFor(campaigns_library);
 
-    char *viewer_qlibid = (char*)it_viewer_libid->second.c_str();
-    char *viewer_id = (char*)it_viewer_id->second.c_str();
-    char *viewer_timecode = (char*)it_viewer_timecode->second.c_str();
+    if (libsRet.second.IsError()){
+        const char* msg = "Unable to gets list of contents";
+        return ctx->make_error(msg, libsRet.second);
+    }
+    auto contents = libsRet.first["list"]["contents"];
+    std::vector<std::map<string,string>> retVal;
 
-    printf("ADSMG viwer qlibid=%s id=%s\n", viewer_qlibid, viewer_id);
+    for (auto &campaign : contents){
+        auto cid = campaign["id"].get<std::string>();
+        auto adsRet = ctx->SQMDGetJSON(campaigns_library.c_str(), cid.c_str(), "ads");
+        if (adsRet.second.IsError()){
+            continue;
+        }
+        auto &adsCur = adsRet.first;
 
-    std::set<std::string> tags = video_tags(ctx, viewer_qlibid, viewer_id, viewer_timecode);
+        for (auto it  = adsCur.begin(); it != adsCur.end(); it++){
+            LOG_DEBUG(ctx, "ad info", "ad", it.value());
+            auto& ad = *it;
+            auto adTags = ad["tags"].get<std::map<std::string, double>>();
+            addToMap(adTags, videoTags);
+            for (auto& el : adTags){
+                if (videoTags.find(el.first) != videoTags.end() || el.first == "_other"){
+                    std::map<std::string, std::string> mapEntry;
+                    mapEntry["campaign_id"] = cid;
+                    mapEntry["ad_library"] = ad["library"];
+                    mapEntry["ad_id"] = it.key();
+                    mapEntry["name"] = ad["name"];
+                    mapEntry["tag"] = el.first;
+                    mapEntry["payout"] = std::to_string(el.second);
+                    mapEntry["score"] = std::to_string(videoTags[el.first]);
+                    mapEntry["ctx"] = std::to_string((int64_t)ctx);
+                    retVal.push_back(mapEntry);
+                }
+            }
+        }
+    }
 
-    std::string res_str = find_ads(ctx, qlibid, qhash, tags);
+    std::sort (retVal.begin(), retVal.end(), compareMatches);
 
-    char *headers = (char *)"application/json";
+    retVal.push_back(adMap);
 
-    /* Prepare output */
-    nlohmann::json j;
-    j["headers"] = headers;
-    j["body"] = res_str;
-    return std::make_pair(j,0);
+    auto jsonRet = nlohmann::json(retVal);
+    auto stringRet = jsonRet.dump();
+    std::vector<unsigned char> jsonData(stringRet.c_str(), stringRet.c_str()+stringRet.size());
+    ctx->Callback(200, "application/json", jsonData.size());
+    auto ret = ctx->WriteOutput(jsonData);
+    return ctx->make_success();
 }
 
 /*
@@ -259,49 +403,54 @@ std::pair<nlohmann::json, int> ads(BitCodeCallContext* ctx, JPCParams& p){
  * - content type 'application/json'
  * - empty response
  */
-std::pair<nlohmann::json, int> register_asset(BitCodeCallContext* ctx, JPCParams& p){
-    HttpParams params;
-    auto p_res = params.Init(p);
-    if (p_res.second != 0){
-        return ctx->make_error(p_res.first, p_res.second);
+elv_return_type register_asset(BitCodeCallContext* ctx, JPCParams& p){
+    auto params = ctx->QueryParams(p);
+    if (params.second.IsError()){
+        return ctx->make_error("Query Parameters from JSON", params.second);
     }
-    auto it_libid = params._map.find("qlibid");
-    if (it_libid == params._map.end()){
-        printf("libid not provided\n");
-        return ctx->make_error("libid not provided", -1);
+    auto it_libid = params.first.find("qlibid");
+    if (it_libid == params.first.end()){
+        const char* msg = "libid not provided";
+        return ctx->make_error(msg, E(msg).Kind(E::BadHttpParams));
     }
 
-    auto it_qhash = params._map.find("qwtoken");
-    if (it_qhash == params._map.end()){
-        printf("qhash not provided\n");
-        return ctx->make_error("qhash not provided", -2);
+    auto it_qhash = params.first.find("qwtoken");
+    if (it_qhash == params.first.end()){
+        const char* msg="qwtoken not provided";
+        return ctx->make_error(msg, E(msg).Kind(E::BadHttpParams));
     }
+
 
     char *qlibid = (char*)it_libid->second.c_str();
     char *qhash = (char*)it_qhash->second.c_str();
-    printf("ADSMG lib=%s qhash=%s\n", qlibid, qhash);fflush(stdout);
+    LOG_DEBUG(ctx, "Adsmanager", "qlibid", qlibid, "qhash", qhash);
 
 
-    auto assetsjs = CHAR_BASED_AUTO_RELEASE(ctx->SQMDGetJSON((char*)"assets"));
+    auto assetsjs = ctx->SQMDGetJSON(qlibid, qhash,"assets");
 
-    printf("ADSMG assets %s\n", assetsjs.get()); fflush(stdout);
-
-    auto it_asset_qlibid = params._map.find("asset_qlib_id");
-    if (it_asset_qlibid == params._map.end()){
-        printf("asset libid not provided\n");
-        return ctx->make_error("asset libid not provided", -3);
+    if (assetsjs.second.IsError()){
+        return ctx->make_error("getting assets", assetsjs.second);
     }
-    auto it_asset_id = params._map.find("asset_id");
-    if (it_asset_id == params._map.end()){
-        printf("asset id not provided\n");
-        return ctx->make_error("assetid not provided", -4);
+
+    LOG_DEBUG(ctx, "Adsmanager assets:", "JSON", assetsjs.first.dump());
+
+    auto it_asset_qlibid = params.first.find("asset_qlib_id");
+    if (it_asset_qlibid == params.first.end()){
+        const char* msg = "asset libid not provided";
+        return ctx->make_error(msg, E(msg).Kind(E::BadHttpParams));
+
+    }
+    auto it_asset_id = params.first.find("asset_id");
+    if (it_asset_id == params.first.end()){
+        const char* msg = "asset id not provided";
+        return ctx->make_error(msg, E(msg).Kind(E::BadHttpParams));
     }
 
     char *asset_qlibid = (char*)it_asset_qlibid->second.c_str();
-    char *asset_id = (char*)it_asset_id->second.c_str();;
+    char *asset_id = (char*)it_asset_id->second.c_str();
 
 
-    printf("ADSMG asset qlibid=%s id=%s\n", asset_qlibid, asset_id);
+    LOG_DEBUG(ctx, "Adsmanager asset", "qlibid", asset_qlibid,  "id", asset_id);
 
     // TODO - add asset to 'asset' metadata list
 
@@ -310,17 +459,19 @@ std::pair<nlohmann::json, int> register_asset(BitCodeCallContext* ctx, JPCParams
     /* Prepare output */
     nlohmann::json j;
     j["headers"] = headers;
-    return std::make_pair(j,0);
+    j["result"] = 0;
+    return ctx->make_success(j);
 }
 
-std::pair<nlohmann::json,int> content(BitCodeCallContext* ctx, JPCParams&)
+elv_return_type content(BitCodeCallContext* ctx, JPCParams&)
 {
     char *headers = (char *)"application/json";
 
     /* Prepare output */
     nlohmann::json j;
     j["headers"] = headers;
-    return std::make_pair(j,0);
+    j["result"] = 0;
+    return ctx->make_success(j);
 }
 
 BEGIN_MODULE_MAP()

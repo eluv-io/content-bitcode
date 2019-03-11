@@ -22,3 +22,5 @@
 *.out
 *.app
 
+*.bc
+*.tmp

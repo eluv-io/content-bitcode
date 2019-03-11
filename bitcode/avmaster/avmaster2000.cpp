@@ -22,6 +22,7 @@
 #include <vector>
 #include <sstream>
 #include <nlohmann/json.hpp>
+#include <libavformat/avformat.h>
 #include "eluvio/dasher.h"
 #include "eluvio/cmdlngen.h"
 #include "eluvio/argutils.h"
@@ -31,6 +32,8 @@
 #include "eluvio/utils.h"
 #include "eluvio/el_cgo_interface.h"
 #include "eluvio/bitcode_context.h"
+#include "eluvio/media.h"
+
 using namespace elv_context;
 
 using nlohmann::json;
@@ -44,7 +47,7 @@ class WordDelimitedBy : public std::string
 /*
  *  Renders an html page with a dash player.
  */
-std::pair<nlohmann::json, int> dashHtml(BitCodeCallContext* ctx, char *url)
+elv_return_type dashHtml(BitCodeCallContext* ctx, char *url)
 {
 
   size_t szUrl = strlen(url) + 1;
@@ -52,9 +55,10 @@ std::pair<nlohmann::json, int> dashHtml(BitCodeCallContext* ctx, char *url)
   strcpy(mpdUrl,url);
 
   char *ext = strrchr(mpdUrl, '.');
-  if(strcmp(ext,".html") != 0)
-    return ctx->make_error("make html requested with url not containing .html", -1);
-
+  if(strcmp(ext,".html") != 0){
+        const char* msg = "make html requested with url not containing .html";
+        return ctx->make_error(msg, E(msg));
+  }
   /* replace html with mpd */
   if (ext != NULL)
       strcpy(ext, ".mpd");
@@ -86,46 +90,21 @@ std::pair<nlohmann::json, int> dashHtml(BitCodeCallContext* ctx, char *url)
     const char* headers = R"("text/html")";
 
     std::string str_body = string_format(body_format, mpdUrl);
-    std::string response_template(R"({"http" : {"status" : %d, "header" : {"Content-Type" : ["%s"], "Content-Length" :  [%d]} }})");
-    auto response = string_format(response_template, 200, headers, str_body.length());
-    nlohmann::json j_response = json::parse(response);
-    ctx->Callback(j_response);
+    ctx->Callback(200,headers,str_body.length());
     std::vector<unsigned char> htmlData(str_body.c_str(), str_body.c_str() + str_body.length());
     auto ret = ctx->WriteOutput(htmlData);
-
+    if (ret.second.IsError()){
+        const char* msg = "WriteOutput";
+        return ctx->make_error(msg, ret.second);
+    }
     return ctx->make_success();
 }
 /*
  * Outputs the data from key "image"
  */
-std::pair<nlohmann::json, int> make_image(BitCodeCallContext* ctx)
+elv_return_type make_image(BitCodeCallContext* ctx)
 {
-    char *headers = (char *)"image/png";
-
-    auto phash = CHAR_BASED_AUTO_RELEASE(ctx->SQMDGetString((char *)"image"));
-    if (phash.get() == NULL) {
-        LOG_ERROR(ctx, "Failed to read key");
-        return ctx->make_error("Failed to read key", -1);
-    }
-    LOG_INFO(ctx, "DBG-AVMASTER thumbnail part_hash=", phash.get());
-
-    /* Read the part in memory */
-    uint32_t psz = 0;
-    auto body = CHAR_BASED_AUTO_RELEASE(ctx->QReadPart(phash.get(), 0, -1, &psz));
-    if (body.get() == NULL) {
-        LOG_ERROR(ctx, "Failed to read resource part");
-        return ctx->make_error("Failed to read resource part", -2);
-    }
-    LOG_INFO(ctx, "DBG-AVMASTER thumbnail part_size=", (int)psz);
-
-    std::string response_template(R"({"http" : {"status" : %d, "headers" : {"content-type" : ["%s"], "content-length" :  ["%d"]} }})");
-    auto response = string_format(response_template, 200, headers, psz);
-    nlohmann::json j_response = json::parse(response);
-    ctx->Callback(j_response);
-    std::vector<unsigned char> out(body.get(), body.get()+psz);
-    auto ret = ctx->WriteOutput(out);
-
-    return ctx->make_success();
+    return elv_media_fns::make_image(ctx);
 }
 
 /*
@@ -137,8 +116,8 @@ std::pair<nlohmann::json, int> make_image(BitCodeCallContext* ctx)
  * Video Segment: http://localhost:4567/dash/rep/video?end=52&start=33
  * All temp files are removed on success
  */
-std::pair<nlohmann::json, int>
-make_video(BitCodeCallContext* ctx, const char* pStart, const char* pEnd, const char* tempFileIn=0)
+elv_return_type
+make_video(BitCodeCallContext* ctx, const char* pStart, const char* pEnd, nlohmann::json* output=NULL, const char* filename=NULL)
 {
     char* inputsSegment[] = {
         (char*)"-hide_banner",
@@ -191,21 +170,17 @@ make_video(BitCodeCallContext* ctx, const char* pStart, const char* pEnd, const 
     }
 
 
-    auto kvPkg = CHAR_BASED_AUTO_RELEASE(ctx->SQMDGetJSON((char*)"pkg"));
-
-    auto jsonPkg = json::parse(kvPkg.get());
-    if (jsonPkg.size() != 1){
-        // it should be 1 for now
-        std::string err =  "ERROR: PKG has ";
-        err += jsonPkg.size();
-        err += " entries, should be 1";
-        return ctx->make_error(err, -1);
+    auto kvPkg = ctx->SQMDGetJSON((char*)"pkg");
+    if (kvPkg.second.IsError()){
+        const char* msg = "SQMD find pkg";
+        return ctx->make_error(msg, kvPkg.second);
     }
+
+    auto jsonPkg = kvPkg.first;
 
     std::string partHash = *(jsonPkg.begin());
 
-    LOG_INFO(ctx, "PARTHASH=", partHash);
-    LOG_INFO(ctx, "JSON=" , jsonPkg);
+    LOG_DEBUG(ctx, "make_video", "PARTHASH", partHash, "JSON", jsonPkg);
 
     if (!isFullVideo){
         inputs[8] = (char*)pStart;
@@ -215,32 +190,40 @@ make_video(BitCodeCallContext* ctx, const char* pStart, const char* pEnd, const 
     }
     nlohmann::json j;
     auto inputStream = ctx->NewStream();
-    auto outputStream = ctx->NewStream();
+    std::string outputStream;
+    if (output){
+        outputStream = (*output)["stream_id"].get<string>();
+    }else{
+        outputStream = ctx->NewStream();
+    }
     j["input_hash"] = partHash;
-    j["output_stream_id"] = outputStream["stream_id"];
+    j["output_stream_id"] = outputStream;
     j["output_media_segment"] = "";
 
     std::string in_files = j.dump();
     auto ffmpegRet = ctx->FFMPEGRunVideo(inputs, isFullVideo ? szFullParams : szSegmentParams, in_files);
-    if (ffmpegRet != 0){
+    if (ffmpegRet.second.IsError()){
         // ERROR
-        return ctx->make_error("FFMpeg failed to run", -2);
+        return ffmpegRet;
     }
-    std::vector<unsigned char> segData(300000000);
-    auto read_ret = ctx->ReadStream(outputStream["stream_id"], segData);
-    if (read_ret.second != 0){
-        ctx->Error("Read stream failed", "{}");
-        return read_ret;
-    }
-    int fsize = read_ret.first["read"];
+    std::vector<unsigned char> segData;
+    auto loadRet = elv_media_fns::load_all_data_from_stream(ctx, outputStream.c_str(), segData);
 
-    const char* response_template = R"({"http" : {"status" : %d, "headers" : {"Content-Type" : ["%s"], "Content-Length" :  ["%d"]} }})";
-    auto response = string_format(response_template, 200, "video/mp4", fsize);
-    nlohmann::json j_callback = json::parse(response);
-    ctx->Callback(j_callback);
-    auto ret = ctx->WriteOutput(segData, fsize);
-    ctx->CloseStream(outputStream["stream_id"]);
-    ctx->CloseStream(inputStream["stream_id"]);
+    if (loadRet.second.IsError()){
+        return ctx->make_error("make_video LoadFromStream", loadRet.second);
+    }
+
+    if (output == nullptr){
+        if (filename == NULL)
+            ctx->Callback(200, "video/mp4", segData.size());
+        else
+            ctx->CallbackDisposition(200, "video/mp4", segData.size(), filename);
+        auto ret = ctx->WriteOutput(segData);
+        ctx->CloseStream(outputStream);
+        ctx->CloseStream(inputStream);
+    }else{ // called by tagger
+        ctx->CloseStream(inputStream);
+    }
 
     // NOTE IF YOU USE THE PASSED IN FILENAME YOU MUST UNLINK IT YOURSELF
     return ctx->make_success();
@@ -287,7 +270,7 @@ std::string FormatTimecode ( int time ){
 /*
  * Outputs the data from key "image"
  */
-std::pair<nlohmann::json, int>
+elv_return_type
 taggit(BitCodeCallContext* ctx, double durationInSecs)
 {
     //run --rm --mount src=/home/jan/boatramp,target=/data,type=bind video_tagging:latest boatramp_180s.mov
@@ -296,77 +279,66 @@ taggit(BitCodeCallContext* ctx, double durationInSecs)
         (char*)"run",
         (char*)"--rm",
         (char*)"--mount",
-        (char*)"src=%s,target=/data,type=bind",
+        (char*)"%INPUTSTREAM%",
         (char*)"video_tagging:latest",
-        (char*)"MISSED"
+        (char*)"%OUTPUTSTREAM%"
     };
 
     double roundedUp = ceil(durationInSecs);
     int iRoundedUp = (int)roundedUp;
     int segmentSize = 30;
 
-    int ret = ctx->SQMDSetJSON((char*)"video_tags", (char*)"{}");
-    if (ret != 0){
-        LOG_ERROR(ctx, "Unable to set video_tags on meta");
-        return ctx->make_error("Unable to set video_tags on meta", -1);
+    auto ret = ctx->SQMDSetJSON((char*)"video_tags", (char*)"{}");
+    if (ret.second.IsError()){
+        const char* msg = "set video_tags on meta";
+        return ctx->make_error(msg, E(msg).Kind(E::Permission));
     }
 
     for (int segment=0; segment<iRoundedUp; segment+=segmentSize){
-        std::string temp_file_name;
+        using defer = shared_ptr<void>;
+        auto inStream = ctx->NewFileStream();
+        auto outStream = ctx->NewFileStream();
+        defer _(nullptr, [ctx, inStream, outStream](...){
+            LOG_DEBUG(ctx, "Lambda Firing:");
+            ctx->CloseStream(inStream["stream_id"]);
+            ctx->CloseStream(outStream["stream_id"]);
+        });
 
-        char buf[1024];
-        char bufInner[128];
-        sprintf(bufInner, "%s", ffmpeg_elv_constants::dummy_filename_template);
-        mktemp(bufInner);
-        sprintf(buf, "%s.mp4", bufInner);
-        temp_file_name = std::string(buf);
-        char CWD[1024];
+        nlohmann::json j;
+        j["input_stream_id"] = inStream["stream_id"];
+        j["output_stream_id"] = outStream["stream_id"];
 
-        if (getcwd(CWD, sizeof(CWD)) == NULL){
-            LOG_INFO(ctx, "unable to get full path info for temp");
-        }
-        std::string fullPath = CWD;
-        fullPath += "/temp/";
-
-        std::string fullPathAndFile = fullPath + temp_file_name;
         char start[64];
         char end[64];
         sprintf(start, "%i", segment);
         int iEnd = (segment + segmentSize) > iRoundedUp ? iRoundedUp : (segment + segmentSize);
         sprintf(end, "%i", iEnd);
 
-        LOG_INFO(ctx, "New File = %s begin seg = %s ",  fullPathAndFile, start);
+        LOG_DEBUG(ctx, "New File",  "stream_id", inStream["stream_id"], "begin_seg", start);
 
-        auto res = make_video(ctx,start,end, (char*)fullPathAndFile.c_str());
-        if (res.second != 0){
-            LOG_INFO(ctx, "make_video failed for segment beginning %s\nSKIPPING\n", start);
+        auto res = make_video(ctx,start,end, &inStream);
+        if (res.second.IsError()){
+            LOG_ERROR(ctx, "make_video failed", "segment", start);
             continue;
         }
+        auto inFiles = j.dump();
+        auto tagRet = ctx->TaggerRun(inputs, sizeof(inputs)/sizeof(char*), inFiles);
 
-        char src_directory[1024];
-        sprintf(src_directory, inputs[3], fullPath.c_str());
-        inputs[3] = src_directory;
-        inputs[5] = (char*)temp_file_name.c_str();
-
-        auto tagRet = ctx->TaggerRun(inputs, sizeof(inputs)/sizeof(char*));
-
-        if (tagRet != 0){
+        if (tagRet.second.IsError()){
             // ERROR
-            return ctx->make_error("TaggerRun failed", tagRet);
-        }
-        if (GlobalCleanup::shouldCleanup()){
-            if (unlink(fullPathAndFile.c_str()) < 0) {
-                LOG_ERROR(ctx, "Failed to remove temporary ffmpeg output file %s", temp_file_name.c_str());
-            }
+            return tagRet;
         }
 
-        std::string jsonFilename = fullPath + "tag_h.json";
+        std::vector<unsigned char> segData;
+        auto loadRet = elv_media_fns::load_all_data_from_stream(ctx, outStream["stream_id"].get<std::string>().c_str(), segData);
 
-        auto jsonData = FileUtils::loadFromFile(ctx, jsonFilename.c_str());
+        if (loadRet.second.IsError()){
+            return ctx->make_error("make_video LoadFromStream", loadRet.second);
+        }
 
-        if (strcmp(jsonData.get(),(char*)"") != 0){
-            LOG_INFO(ctx, jsonData.get());
-            auto jsonRep = json::parse(jsonData.get());
+        if (strcmp((const char*)segData.data(),(char*)"") != 0){
+            LOG_DEBUG(ctx, "Stream segment info", "data", (const char*)segData.data());
+            auto jsonRep = json::parse(segData.data());
 
             auto video_tags = jsonRep["videoTags"];
 
@@ -380,20 +352,21 @@ taggit(BitCodeCallContext* ctx, double durationInSecs)
             jsonObj["tags"] = video_tags;
             jsonNew.push_back(jsonObj);
 
-            int ret = ctx->SQMDMergeJSON((char*)"video_tags", (char*)jsonNew.dump().c_str());
-            if (ret != 0){
-                LOG_ERROR(ctx, "SQMDMergeJSON failed with code=%d", ret);
-                return ctx->make_error("SQMDMergeJSON failed", ret);
+            auto ret = ctx->SQMDMergeJSON((char*)"video_tags", (char*)jsonNew.dump().c_str());
+            if (ret.second.IsError()){
+                LOG_ERROR(ctx, "SQMDMergeJSON", "video_tags", jsonNew.dump().c_str(), "inner_error", ret.second.getJSON());
+                return ret;
             }
         }else{
-            LOG_ERROR(ctx, "NO VALID JSON RESULTS RETURNED FROM TAGGER");
+            LOG_ERROR(ctx, "Empty JSON returned");
         }
-
     }
+
+
     nlohmann::json j;
     j["headers"] = "application/json";
     j["body"] = "SUCCESS";
-    return std::make_pair(j,0);
+    return std::make_pair(j,E(false));
 }
 
 /*
@@ -404,13 +377,8 @@ taggit(BitCodeCallContext* ctx, double durationInSecs)
  * Example URLs:
  *   http://localhost:8008/qlibs/ilibXXX/q/hq__XXX/call/tagger
  */
-std::pair<nlohmann::json,int> tagger(BitCodeCallContext* ctx, JPCParams& p)
+elv_return_type tagger(BitCodeCallContext* ctx, JPCParams&)
 {
-    HttpParams params;
-    auto p_res = params.Init(p);
-    if (p_res.second != 0){
-        return ctx->make_error(p_res.first, p_res.second);
-    }
     return taggit(ctx, 100.0);
 }
 
@@ -420,14 +388,14 @@ std::pair<nlohmann::json,int> tagger(BitCodeCallContext* ctx, JPCParams& p)
 
     tags   - vector of strings with tags of interest
 */
-std::pair<nlohmann::json, int> find_ads(BitCodeCallContext* ctx, std::vector<std::string>& tags){
+elv_return_type find_ads(BitCodeCallContext* ctx, std::vector<std::string>& tags){
 
-    auto kvPkg = CHAR_BASED_AUTO_RELEASE(ctx->KVGet((char*)"assets"));
-    if (kvPkg.get() == NULL){
-        LOG_ERROR(ctx, "assets not found in content\n");
-        return ctx->make_error("assets not found in content", -1);
+    auto kvPkg = ctx->KVGet((char*)"assets");
+    if (kvPkg == ""){
+        const char* msg = "getting assets from content";
+        return ctx->make_error(msg, E(msg).Kind(E::NotExist));
     }
-    auto jsonPkg = json::parse(kvPkg.get());
+    auto jsonPkg = json::parse(kvPkg);
     std::map<string, float> matches;
     std::map<string, float>::iterator itProbs;
     float max = 0.0;
@@ -446,7 +414,7 @@ std::pair<nlohmann::json, int> find_ads(BitCodeCallContext* ctx, std::vector<std
     }
 
     char returnString[16384];
-    auto returnFormat = R"({"price":%.2f,"tag":"%s”})";
+    auto returnFormat = R"({"price":%.2f,"tag":"%s"})";
     sprintf(returnString, returnFormat, max, maxTag.c_str());
 
      /* Prepare output */
@@ -460,36 +428,124 @@ std::pair<nlohmann::json, int> find_ads(BitCodeCallContext* ctx, std::vector<std
 /*
  *  Returns one ad content object as a JSON { "library" : "", "hash": "" }
  */
-std::pair<nlohmann::json,int>  ad(BitCodeCallContext* ctx, JPCParams& p)
+elv_return_type  ad(BitCodeCallContext* ctx, JPCParams& p)
 {
-    HttpParams params;
-    auto p_res = params.Init(p);
-    if (p_res.second != 0){
-        return ctx->make_error(p_res.first, p_res.second);
-    }
     /* Extract an ad library from the list */
-    auto adlibid = CHAR_BASED_AUTO_RELEASE(ctx->KVGet((char *)"eluv.sponsor.qlibid"));
+    auto adlibid = ctx->KVGet((char *)"eluv.sponsor.qlibid");
 
-    if (adlibid.get() == NULL) {
-        LOG_ERROR(ctx, "Failed to retrieve ad library\n");
-        return ctx->make_error("Failed to retrieve ad library", -3);
+    if (adlibid == "") {
+        const char* msg = "Failed to retrieve ad library";
+        return ctx->make_error(msg, E(msg).Kind(E::IO));
     }
-    auto adhash = CHAR_BASED_AUTO_RELEASE(ctx->KVGet((char *)"eluv.sponsor.qhash"));
-    if (adlibid.get() == NULL) {
-        LOG_ERROR(ctx, "Failed to retrieve ad content hash\n");
-        return ctx->make_error("Failed to retrieve ad content hash", -4);
+    auto adhash = ctx->KVGet((char *)"eluv.sponsor.qhash");
+    if (adhash == "") {
+        const char* msg = "Getting eluv.sponsor.qhash";
+        return ctx->make_error(msg, E(msg).Kind(E::IO));
     }
 
     char *headers = (char *)"text/html";
 
     char body[1024];
-    snprintf(body, sizeof(body), (char *)"{\"library\":\"%s\",\"hash\":\"%s\"}", adlibid.get(), adhash.get());
+    snprintf(body, sizeof(body), (char *)"{\"library\":\"%s\",\"hash\":\"%s\"}", adlibid.c_str(), adhash.c_str());
 
     /* Prepare output */
     nlohmann::json j;
     j["headers"] = headers;
     j["body"] = body;
     return std::make_pair(j,0);
+}
+
+elv_return_type make_hls_playlist( BitCodeCallContext* ctx, char* req ) {
+
+    // Example requests: /hls/en-master.m3u8
+    // hls/en-video-1080p@5120000.m3u8
+    // hls/en-master.m3u8
+    // keys: ["en", "master.m3u8"], ["en", "video-1080p@5120000.m3u8"]
+
+    int req_len = strlen(req);
+
+    if (req_len == 0){
+        std::string msg = "make_hls_playlist bad request len = 0";
+        return ctx->make_error(msg, E(msg).Cause(eluvio_errors::ErrorKinds::BadHttpParams));
+    }
+    char suffix[5];
+    char* preamble = (char*)alloca(req_len);
+    char language[10];
+    char format[20];
+    char bandwidth[10];
+    char filename[10];
+
+    json j;
+
+    language[0] = 0;
+    for (int i=0; i < req_len; i++){
+        char curCh = req[i];
+        if (curCh == '-' || curCh == '/' || curCh == '.' || curCh == '@') // Not found lang yet
+            req[i] = ' ';
+    }
+    if ( strstr(req, "master") !=NULL ) {
+        auto ret = sscanf(req, "%s%s%s%s", preamble, language, filename, suffix);
+        if (ret != 4){
+            std::string msg = "make_hls_playlist sscanf incorrect params";
+            return ctx->make_error(msg, E(msg, std::string("count"), ret));
+        }
+        LOG_DEBUG( ctx, "request", "pre", preamble, "lang", language, "file", filename, "sfx", suffix );
+    } else {
+        auto ret = sscanf(req, "%s%s%s%s%s%s", preamble, language, filename, format, bandwidth, suffix);
+        if (ret != 6){
+            std::string msg = "make_hls_playlist sscanf incorrect params";
+            return ctx->make_error(msg, E(msg, std::string("count"), ret));
+        }
+        LOG_DEBUG( ctx, "request", "pre", preamble, "lang", language, "file", filename, "fmt", format, "bw", bandwidth, "sfx", suffix );
+    }
+
+    char offering_keybuf[128];
+    sprintf(offering_keybuf, "legOffering.%s", language);
+
+    auto offering_b64_res = ctx->SQMDGetJSON((char*)offering_keybuf);
+    if (offering_b64_res.second.IsError()){
+        return ctx->make_error("make_hls_playlist", offering_b64_res.second);
+    }
+    std::string offering_b64 = offering_b64_res.first;
+
+    const char* msg = "make_hls_playlist extract offering";
+
+    if (offering_b64 == ""){
+        return ctx->make_error(msg, E(msg, "op","SQMDGetJSON", "offering", (const char*)offering_keybuf));
+    }
+
+    LOG_DEBUG(ctx, msg, "key", offering_keybuf, "b64", offering_b64);
+
+    std::string offering_json = base64_decode(offering_b64);
+
+    LOG_DEBUG(ctx, msg, "key", offering_keybuf, "json", offering_json);
+
+    json j2 = json::parse(offering_json);
+
+    char playlist_keybuf[128];
+
+    if (strcmp(filename, "master")==0) {
+        sprintf(playlist_keybuf, "%s.%s", filename, suffix);
+    } else {
+        sprintf(playlist_keybuf, "%s-%s@%s.%s", filename, format, bandwidth, suffix);
+    }
+
+    char buf[128];
+    sprintf(buf, "offering.%s.hls", language);
+    LOG_DEBUG(ctx, "get playlist", "key", buf);
+    std::string playlist_b64 = j2["offering"]["hls"][playlist_keybuf];
+    LOG_DEBUG(ctx, "encoded playlist", "b64", playlist_b64);
+
+    std::string playlist = base64_decode(playlist_b64);
+    LOG_DEBUG(ctx, "decoded playlist", "playlist", playlist);
+    ctx->Callback(200, "application/x-mpegURL", playlist.length());
+
+    std::vector<unsigned char> playlistData(playlist.c_str(), playlist.c_str() + playlist.length());
+
+    auto ret = ctx->WriteOutput(playlistData);
+
+    return ctx->make_success();
+
 }
 
 /*
@@ -512,21 +568,26 @@ Example URLs:
   Audio Segment: http://localhost:4567/dash/EN-STEREO-3200-1.m4a
 
  */
-std::pair<nlohmann::json,int> content(BitCodeCallContext* ctx,  JPCParams& p)
+elv_return_type content(BitCodeCallContext* ctx,  JPCParams& p)
 {
-    HttpParams params;
-    auto p_res = params.Init(p);
-    if (p_res.second != 0){
-        return ctx->make_error(p_res.first, p_res.second);
+    auto path = ctx->HttpParam(p, "path");
+    if (path.second.IsError()){
+        return ctx->make_error("getting path from JSON", path.second);
     }
+    auto params = ctx->QueryParams(p);
+    if (params.second.IsError()){
+        return ctx->make_error("Query Parameters from JSON", params.second);
+    }
+
+
     typedef enum eMKTypes { VIDEO , AUDIO, MANIFEST, HTML, AD } MKTypes;
 
     const char* startTag = "start";
     const char* endTag = "end";
 
-    char* pContentRequest = (char*)(params._path.c_str());
+    char* pContentRequest = (char*)path.first.c_str();
 
-    LOG_INFO(ctx, "content=%s", pContentRequest);
+    LOG_INFO(ctx, "content", "request", pContentRequest);
     char szMK[5];
     int cbContentRequest = strlen(pContentRequest);
     MKTypes mk;
@@ -534,14 +595,21 @@ std::pair<nlohmann::json,int> content(BitCodeCallContext* ctx,  JPCParams& p)
 
     /* Fist check for matching URL paths */
     if (strcmp(pContentRequest, "/image") == 0) {
-        LOG_INFO(ctx, "REP /image");
+        LOG_DEBUG(ctx, "Performing REP /image");
         return make_image(ctx);
     }
-    if (strcmp(pContentRequest, "/video") == 0) {
-        auto it_start = params._map.find(startTag);
-        auto it_end = params._map.find(endTag);
-        if (it_end == params._map.end() || it_start == params._map.end()){
-            return make_video(ctx, NULL,NULL);
+    if (strncmp(pContentRequest, "/checksum", strlen("/checksum")) == 0){
+        return elv_media_fns::make_sum(ctx, p);
+    }
+
+    auto isDownload = strncmp(pContentRequest, "/download", strlen("/download")) == 0;
+    auto isVideo = strncmp(pContentRequest, "/video", strlen("/video")) == 0;
+    if (isDownload || isVideo) {
+
+        auto it_start = params.first.find(startTag);
+        auto it_end = params.first.find(endTag);
+        if (it_end == params.first.end() || it_start == params.first.end()){
+            return (isDownload) ? make_video(ctx, NULL,NULL,0, base_download_file) : make_video(ctx, NULL,NULL);
         }
 
         std::map<std::string, std::string> timeframe;
@@ -550,17 +618,17 @@ std::pair<nlohmann::json,int> content(BitCodeCallContext* ctx,  JPCParams& p)
         auto startTime = std::stod(timeframe[startTag]);
         auto endTime = std::stod(timeframe[endTag]);
         if (startTime > endTime){
-            LOG_ERROR(ctx, "Invalid range specified, end must be greater than start");
-            LOG_ERROR(ctx, "start =%d end =%d ", startTime, endTime);
-            return ctx->make_error("Invalid range specified, end must be greater than start", -8);;
+            const char* msg = "Invalid range specified, end must be greater than start";
+            LOG_ERROR(ctx, msg, "start," ,startTime, "end",  endTime);
+            return ctx->make_error(msg, E(msg).Kind(E::Invalid));
         }
-        return make_video(ctx, timeframe[startTag].c_str(), timeframe[endTag].c_str());
+        return (isDownload) ? make_video(ctx, timeframe[startTag].c_str(), timeframe[endTag].c_str(), 0, base_download_file): make_video(ctx, timeframe[startTag].c_str(), timeframe[endTag].c_str());
     }
     if (strcmp(pContentRequest, "/ads") == 0) {
-        auto it_tags = params._map.find("tags");
-        if (it_tags == params._map.end()){
-            LOG_ERROR(ctx, "ads requested but no tags provided");
-            return ctx->make_error("ads requested but no tags provided", -9);
+        auto it_tags = params.first.find("tags");
+        if (it_tags == params.first.end()){
+            const char* msg = "Avmaster no tags provided";
+            return ctx->make_error(msg, E(msg).Kind(E::IO));
         }
         std::istringstream iss(it_tags->second);
         std::vector<std::string> tags((std::istream_iterator<WordDelimitedBy<','>>(iss)),
@@ -568,10 +636,24 @@ std::pair<nlohmann::json,int> content(BitCodeCallContext* ctx,  JPCParams& p)
         return find_ads(ctx, tags);
     }
 
+    if (strstr(pContentRequest, "/hls/")) {
+        if (strstr(pContentRequest, ".m3u8")) {
+            LOG_DEBUG(ctx, "REP /hls playlist", "request url", pContentRequest);
+            try {
+                return make_hls_playlist(ctx, pContentRequest);
+            } catch (std::exception e) {
+                return ctx->make_error("make_hls_playlist exception", E(e.what()).Kind(E::Other));
+            }
+        }
+        /* Fall through to serve segments - HLS and DASH segments are the same */
+    }
+
     /* Check for DASH extensions */
     char *dot = strrchr(pContentRequest, '.');
-    if (!dot)
-        return ctx->make_error("dash request made but not '.' can be found in URL to parse", -9);
+    if (!dot){
+        const char* msg = "dash request made but not '.' can be found in URL to parse";
+        return ctx->make_error(msg , E(msg).Kind(E::Invalid));
+    }
 
     if (strcmp(szMK, "mpd") == 0)  // really need to return error if not matching any
         mk = MANIFEST;
@@ -583,8 +665,10 @@ std::pair<nlohmann::json,int> content(BitCodeCallContext* ctx,  JPCParams& p)
         mk = HTML;
     else if (strcmp(dot, ".ad") == 0)
         mk = AD;
-    else
-        return ctx->make_error("Unknown parse type detected", -10);
+    else{
+        const char* msg = "Unknown parse type detected";
+        return ctx->make_error(msg, E(msg).Kind(E::Other));
+    }
 
 //   URL path (e.g.: "/dash/EN-320p@1300000-init.m4v")
 
@@ -603,42 +687,44 @@ std::pair<nlohmann::json,int> content(BitCodeCallContext* ctx,  JPCParams& p)
     }
     sscanf(pContentRequest, "%s%s%s%s%s%s", szPreamble, szLanguage, szFormat, bandwidth, track, szMK);
 
-    LOG_INFO(ctx, "content request = %s", pContentRequest);
+    LOG_DEBUG(ctx, "content",  "request", pContentRequest,
+        "preamble", szPreamble, "lang", szLanguage, "format", szFormat, "bw", bandwidth, "track", track, "mk", szMK);
     char buf[128];
-    sprintf(buf, "offering.%s", szLanguage);
+    sprintf(buf, "legOffering.%s", szLanguage);
 
-    auto kvGotten = CHAR_BASED_AUTO_RELEASE(ctx->KVGet((char*)buf));
-    auto kvWatermark = CHAR_BASED_AUTO_RELEASE(ctx->SQMDGetJSON((char*)"watermark"));
+    auto kvGotten = ctx->SQMDGetJSON((char*)buf);
+    auto kvWatermark = ctx->SQMDGetJSON((char*)"watermark");
 
-    if (kvGotten.get() == NULL){
-        LOG_ERROR(ctx, "json NOT FOUND, FAILING");
-        return ctx->make_error("json not found", -11);
+    if (kvGotten.second.IsError()){
+        const char* msg = "json not found";
+        return ctx->make_error(msg, kvGotten.second);
     }
-    std::string encoded_json = kvGotten.get()+1;
-    std::string watermark_json = kvWatermark.get() == NULL ? std::string("{}") : kvWatermark.get();
-    std::string decoded_json = base64_decode(encoded_json);
+    std::string watermark_json = kvWatermark.second.IsError() ? std::string("{}") : kvWatermark.first.dump();
+    std::string decoded_json = base64_decode(kvGotten.first.dump().substr(1));
 
     switch(mk){
         case AUDIO:
         case VIDEO:
         {
-            Dasher dasher((mk==AUDIO)? 'a' : 'v', std::string(szLanguage), std::string(szFormat), std::string(track), decoded_json, ctx, watermark_json);
+            std::string rep_name = std::string(szFormat) + "@" + std::string(bandwidth);
+            Dasher dasher((mk==AUDIO)? 'a' : 'v', std::string(szLanguage), rep_name, std::string(track), decoded_json, ctx, watermark_json);
             dasher.initialize();
-            DashSegmentGenerator gen(dasher);
+            DashSegmentGenerator<Dasher> gen(dasher);
             return gen.dashSegment(ctx);
 
         }
         break;
         case MANIFEST:
             {
+                std::string strAuth;
                 j = json::parse(decoded_json);
                 DashManifest dashManifest(j);
-                std::string manifestString = dashManifest.Create();
-                //std::string manifestString = "Hello World!";
-                std::string response_template(R"({"http" : {"status" : %d, "headers" : {"Content-Type" : ["application/dash+xml"], "Content-Length" :  ["%d"]} }})");
-                auto response = string_format(response_template, 200, manifestString.length());
-                nlohmann::json j_response = json::parse(response);
-                ctx->Callback(j_response);
+                if (params.first.find("authorization") != params.first.end()){
+                    strAuth = params.first["authorization"];
+                    LOG_DEBUG(ctx, "Found authorization info");
+                }
+                std::string manifestString = dashManifest.Create(strAuth);
+                ctx->Callback(200, "application/dash+xml",  manifestString.length());
                 std::vector<unsigned char> manifestData(manifestString.c_str(), manifestString.c_str()+manifestString.length());
                 auto ret = ctx->WriteOutput(manifestData);
 
@@ -647,15 +733,21 @@ std::pair<nlohmann::json,int> content(BitCodeCallContext* ctx,  JPCParams& p)
             }
             break;
     case HTML:
-        //return dashHtml(ctx, url);
-        return ctx->make_error("Feature not currently working", -16);
+        {
+            //return dashHtml(ctx, url);
+            const char* msg ="Feature not currently working";
+            return ctx->make_error(msg, E(msg).Kind(E::NotImplemented));
+        }
     case AD:
         return ad(ctx, p);
     default:
-        return ctx->make_error("unknown url file extension requested", -15);
+        {
+            const char* msg = "unknown url file extension requested";
+            return ctx->make_error(msg, E(msg).Kind(E::NotExist));
+        }
     };
 
-    return ctx->make_error("unknown type requested", -17);
+    return ctx->make_error("unknown type requested", E("unknown type requested").Kind(E::NotExist));
 
 }
 

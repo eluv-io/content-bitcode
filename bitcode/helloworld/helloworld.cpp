@@ -18,7 +18,7 @@ using namespace elv_context;
 
 using nlohmann::json;
 
-std::pair<nlohmann::json, int> make_html(BitCodeCallContext* ctx, const char *url)
+elv_return_type make_html(BitCodeCallContext* ctx, const char *url)
 {
   /*TODO: this embedded html should be a template resource, part of the content */
   const std::string body_format(R"(
@@ -42,13 +42,8 @@ std::pair<nlohmann::json, int> make_html(BitCodeCallContext* ctx, const char *ur
     const char* headers = "text/html";
 
     std::string str_body = string_format(body_format, url);
-    printf("BODY = %s\n", str_body.c_str());
-    const char* response_template = R"({"http" : {"status" : %d, "headers" : {"Content-Type" : ["%s"], "Content-Length" :  ["%d"]} }})";
-
-    auto response = string_format(std::string(response_template), 200, headers, str_body.length());
-    printf("RESPONSE = %s\n", response.c_str());
-    nlohmann::json j_response = json::parse(response);
-    ctx->Callback(j_response);
+    LOG_INFO(ctx, "make_html", "BODY", str_body.c_str());
+    ctx->Callback(200, headers, str_body.length());
     std::vector<unsigned char> htmlData(str_body.c_str(), str_body.c_str() + str_body.length());
     auto ret = ctx->WriteOutput(htmlData);
 
@@ -57,84 +52,73 @@ std::pair<nlohmann::json, int> make_html(BitCodeCallContext* ctx, const char *ur
 /*
  * Outputs the data from key "image"
  */
-std::pair<nlohmann::json, int> make_image(BitCodeCallContext* ctx)
+elv_return_type make_image(BitCodeCallContext* ctx)
 {
     char *headers = (char *)"image/png";
 
-    auto phash = CHAR_BASED_AUTO_RELEASE(ctx->SQMDGetString((char *)"image"));
-    if (phash.get() == NULL) {
-        LOG_ERROR(ctx, "Failed to read key");
-        return ctx->make_error("Failed to read key", -1);
+    auto phash = ctx->SQMDGetString((char *)"image");
+    if (phash == "") {
+        const char* msg = "Failed to read key";
+        return ctx->make_error(msg, E(msg).Kind(E::NotExist));
     }
-    LOG_INFO(ctx, "DBG-AVMASTER thumbnail part_hash=", phash.get());
+    LOG_INFO(ctx, "make_image thumbnail", "part_hash", phash);
 
     /* Read the part in memory */
     uint32_t psz = 0;
-    auto body = CHAR_BASED_AUTO_RELEASE(ctx->QReadPart(phash.get(), 0, -1, &psz));
-    if (body.get() == NULL) {
-        LOG_ERROR(ctx, "Failed to read resource part");
-        return ctx->make_error("Failed to read resource part", -2);
+    auto body = ctx->QReadPart(phash.c_str(), 0, -1, &psz);
+    if (body->size() == 0) {
+        const char* msg = "QReadPart Failed to read resource part";
+        LOG_ERROR(ctx, msg, "HASH", phash);
+        return ctx->make_error(msg, E(msg).Kind(E::NotExist));
     }
-    LOG_INFO(ctx, "DBG-AVMASTER thumbnail part_size=", (int)psz);
+    LOG_INFO(ctx, "make_image thumbnail",  "part_size", (int)psz);
 
-    std::string response_template(R"({"http" : {"status" : %d, "headers" : {"content-type" : ["%s"], "content-length" :  ["%d"]} }})");
-    auto response = string_format(response_template, 200, headers, psz);
-    nlohmann::json j_response = json::parse(response);
-    ctx->Callback(j_response);
-    std::vector<unsigned char> out(body.get(), body.get()+psz);
-    auto ret = ctx->WriteOutput(out);
-
-    return ctx->make_success();
+    ctx->Callback(200, headers, psz);
+    return ctx->WriteOutput(*(body.get()));
 }
 
-std::pair<nlohmann::json,int> content(BitCodeCallContext* ctx,  JPCParams& p)
+elv_return_type content(BitCodeCallContext* ctx,  JPCParams& p)
 {
-    HttpParams params;
-    auto p_res = params.Init(p);
-    if (p_res.second != 0){
-        return ctx->make_error(p_res.first, p_res.second);
+    auto path = ctx->HttpParam(p, "path");
+    if (path.second.IsError()){
+        return ctx->make_error("getting path from JSON", path.second);
     }
 
-    char* pContentRequest = (char*)(params._path.c_str());
+    char* pContentRequest = (char*)(path.first.c_str());
 
-    LOG_INFO(ctx, "content=%s", pContentRequest);
+    LOG_INFO(ctx, "content", pContentRequest);
 
     /* Fist check for matching URL paths */
     if (strcmp(pContentRequest, "/image") == 0) {
-        LOG_INFO(ctx, "REP /image");
+        LOG_INFO(ctx, "making REP /image");
         return make_image(ctx);
     }
 
     /* Fist check for matching URL paths */
     if (strcmp(pContentRequest, "/helloworld") == 0) {
-        LOG_INFO(ctx, "REP /helloWorld");
+        LOG_INFO(ctx, "making REP /helloWorld");
         return make_html(ctx, "image");
     }
     /* Check for DASH extensions */
 
-    return ctx->make_error("unknown type requested", -17);
+    const char* msg = "unknown type requested";
+    return ctx->make_error(msg, E(msg).Kind(E::Other));
 
 }
 
-std::pair<nlohmann::json,int> helloworld(BitCodeCallContext* ctx,  JPCParams& p)
+elv_return_type helloworld(BitCodeCallContext* ctx,  JPCParams& p)
 {
-    HttpParams params;
-    auto p_res = params.Init(p);
-    if (p_res.second != 0){
-        return ctx->make_error(p_res.first, p_res.second);
+    auto phash = ctx->SQMDGetString((char *)"name");
+    if (phash == ""){
+        const char* msg = "failed to get MD key name";
+        return ctx->make_error(msg, E(msg).Kind(E::NotExist));
     }
-    auto phash = CHAR_BASED_AUTO_RELEASE(ctx->SQMDGetString((char *)"name"));
 
     const char* headers = "text/html";
 
     std::string body_format = R"(Hello my name is %s)";
-    std::string str_body = string_format(body_format, phash.get());
-    const char* response_template = R"({"http" : {"status" : %d, "headers" : {"Content-Type" : ["%s"], "Content-Length" :  ["%d"]} }})";
-
-    auto response = string_format(std::string(response_template), 200, headers, str_body.length());
-    printf("RESPONSE = %s\n", response.c_str());
-    nlohmann::json j_response = json::parse(response);
-    ctx->Callback(j_response);
+    std::string str_body = string_format(body_format, phash.c_str());
+    ctx->Callback(200, headers, str_body.length());
     std::vector<unsigned char> htmlData(str_body.c_str(), str_body.c_str() + str_body.length());
     auto ret = ctx->WriteOutput(htmlData);
 
