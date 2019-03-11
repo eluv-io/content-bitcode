@@ -22,7 +22,6 @@
 #include <vector>
 #include <sstream>
 #include <nlohmann/json.hpp>
-#include <libavformat/avformat.h>
 #include "eluvio/dasher.h"
 #include "eluvio/cmdlngen.h"
 #include "eluvio/argutils.h"
