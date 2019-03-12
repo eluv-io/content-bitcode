@@ -14,6 +14,7 @@
 #include "eluvio/utils.h"
 #include "eluvio/el_cgo_interface.h"
 #include "eluvio/bitcode_context.h"
+#include "eluvio/media.h"
 using namespace elv_context;
 
 using nlohmann::json;
@@ -54,27 +55,7 @@ elv_return_type make_html(BitCodeCallContext* ctx, const char *url)
  */
 elv_return_type make_image(BitCodeCallContext* ctx)
 {
-    char *headers = (char *)"image/png";
-
-    auto phash = ctx->SQMDGetString((char *)"image");
-    if (phash == "") {
-        const char* msg = "Failed to read key";
-        return ctx->make_error(msg, E(msg).Kind(E::NotExist));
-    }
-    LOG_INFO(ctx, "make_image thumbnail", "part_hash", phash);
-
-    /* Read the part in memory */
-    uint32_t psz = 0;
-    auto body = ctx->QReadPart(phash.c_str(), 0, -1, &psz);
-    if (body->size() == 0) {
-        const char* msg = "QReadPart Failed to read resource part";
-        LOG_ERROR(ctx, msg, "HASH", phash);
-        return ctx->make_error(msg, E(msg).Kind(E::NotExist));
-    }
-    LOG_INFO(ctx, "make_image thumbnail",  "part_size", (int)psz);
-
-    ctx->Callback(200, headers, psz);
-    return ctx->WriteOutput(*(body.get()));
+    return elv_media_fns::make_image(ctx);
 }
 
 elv_return_type content(BitCodeCallContext* ctx,  JPCParams& p)
