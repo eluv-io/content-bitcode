@@ -1,28 +1,36 @@
 #!/bin/bash
+set -Eeuo pipefail
+
 #
 # Publish a content object
 #
-# Usage: QLIBID QTYPE NAME FILE  [FILE ...]
+# Usage: fabric_url qlibid qtype publish_name file [file ...]
+# Example:
+#   ./publish-content.sh \
+#   http://209.51.161.242:80 \
+#   ilib2AWdn731Mrrn68nmyP8WMqUpx69M \
+#   hq__QmWpLNhhiQRWjiEM9HwDUx1eXN11UZqC4Y1UeXMrVXBWE5 \
+#   hellocats \
+#   cats.png
 #
-# Prerequisites
+
 hash jq || exit 1
 
-if test $# -lt 3; then
-    echo "Required arguments: <QLIBID> <QTYPE> <NAME> <FILE> [<FILE> ...]"
+if test $# -lt 4; then
+    echo "Required arguments: fabric_url qlibid qtype publish_name file [file ...]"
     exit 1
 fi
 
-qlibid=$1
-qtype=$2
-name=$3
-
+url=$1
+qlibid=$2
+qtype=$3
+name=$4
 echo "lib=$qlibid type=$qtype name=$name"
 
 shift; shift; shift;
 files=$*
 echo "files=$files"
 
-url=http://localhost:8008
 hdr="-H Accept: application/json -H Content-Type: application/json"
 
 # Make a content object with the required parts and keys
@@ -48,6 +56,7 @@ function make_content() {
     qhash=`curl -s -X POST $hdr $url/qlibs/$qlibid/q/$qwt | jq -r .hash`
 
     echo qhash: $qhash
+    echo URL: $url/qlibs/$qlibid/q/$qhash/rep/
 }
 
 echo Library: $qlibid

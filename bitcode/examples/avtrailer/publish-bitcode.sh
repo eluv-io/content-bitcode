@@ -2,10 +2,8 @@
 set -Eeuxo pipefail
 
 
-#url="http://q1.contentfabric.io"
-#qlibid="ilib1"
-url="http://localhost:8008"
-qlibid="ilibmXGCuPZKWSKac13T3dAguedhEbQ"
+url="http://209.51.161.242:80"
+qlibid="ilib2AWdn731Mrrn68nmyP8WMqUpx69M"
 
 dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd $dir
