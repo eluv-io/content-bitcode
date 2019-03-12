@@ -22,7 +22,7 @@ if test $# -eq 1; then
     extra_flags="$1"
 fi
 
-shared_flags="-I../include -Wall -emit-llvm -std=c++14 -fno-use-cxa-atexit"
+shared_flags="-I../../include -Wall -emit-llvm -std=c++14 -fno-use-cxa-atexit"
 
 $clang_bin -O0 -g $extra_flags $CGO_CPPFLAGS $shared_flags -c helloworld.cpp -o helloworld.bc
 
