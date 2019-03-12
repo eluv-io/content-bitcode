@@ -27,12 +27,15 @@
 #include <netdb.h> //hostent
 #include "eluvio/argutils.h"
 #include "eluvio/utils.h"
+#include "eluvio/error.h"
 
 extern "C" char*    JPC(char*);
 extern "C" char*    Write(char*, char*, char*,int);
 extern "C" char*    Read(char*, char*, char*,int);
 
 using namespace std;
+
+typedef std::pair<nlohmann::json,E> elv_return_type;
 
 namespace elv_context{
 
@@ -67,41 +70,7 @@ namespace elv_context{
 
 	typedef nlohmann::json JPCParams;
 
-	class HttpParams{
-	public:
-		HttpParams(){}
-		std::pair<std::string,int> Init(JPCParams& j_params){
-			try{
-				if (j_params.find("http") != j_params.end()){
-					std::cout << j_params.dump() << std::endl;
-					auto j_http = j_params["http"];
-					_verb = j_http["verb"];
-					_path = j_http["path"];
-					_headers = j_http["headers"];
-					auto& q = j_http["query"];
-
-					for (auto& element : q.items()) {
-						_map[element.key()] = element.value()[0];
-					}
-					return make_pair("success", 0);
-				}
-				return make_pair("could not find http in parameters", -1);
-			}
-			catch (json::exception& e)
-			{
-				return make_pair(e.what(), e.id);
-			}
-		}
-		std::map<std::string, std::string>	_map;
-		std::string _verb;
-		std::string _path;
-		nlohmann::json _headers;
-	};
-
-
-
-
-	typedef std::pair<nlohmann::json,int> (*call_impl)(BitCodeCallContext*, JPCParams&);
+	typedef elv_return_type (*call_impl)(BitCodeCallContext*, JPCParams&);
 	static std::map<std::string, std::unique_ptr<BitCodeCallContext>> _context_map;
 
 	struct ModuleMap{
@@ -196,30 +165,24 @@ namespace elv_context{
 			return 4000000;
 		}
 
-		std::pair<nlohmann::json,int> make_error(std::string desc, int code){
+		elv_return_type make_error(std::string desc, E code){
 			nlohmann::json j;
 			j["message"] = desc;
-			j["code"] = code;
+			j["code"] = code.getJSON();
 			return make_pair(j,code);
 		}
-		char* AllocateMemoryAndCopyString(std::string strToCopy){
-			char* ret = (char*)malloc(strToCopy.size()+1);
-			if (ret == NULL) return NULL;
-			strcpy(ret, strToCopy.c_str());
-			return ret;
-		}
-		uint8_t* AllocateMemoryAndCopyBuffer(uint8_t* buf, int sz){
-			uint8_t* ret = (uint8_t*)malloc(sz);
-			if (ret == NULL) return NULL;
-			memcpy(ret, buf, sz);
-			return ret;
-		}
-		std::pair<nlohmann::json,int> make_success(){
+		elv_return_type make_success(){
 			/* Prepare output */
-			nlohmann::json j_ret;
-			j_ret["headers"] = "application/json";
-			j_ret["body"] = "SUCCESS";
-			return std::make_pair(j_ret,0);
+			nlohmann::json j;
+			char *headers = (char *)"application/json";
+			j["headers"] = headers;
+			j["result"] = 0;
+			j["body"] = "SUCCESS";
+			return std::make_pair(j,E(false));
+		}
+		elv_return_type make_success(nlohmann::json j){
+			/* Prepare output */
+			return std::make_pair(j,E(false));
 		}
 
 		BitCodeCallContext(std::string ID) : _ID(ID){
@@ -243,20 +206,68 @@ namespace elv_context{
 		std::string Output(){
 			return std::string("fos");
 		}
+		// Callback overload to easily generate standard json for response
+		// encoded in JSON.
+		elv_return_type Callback(int status, const char* content_type, int size){
+			nlohmann::json j_response = {
+				{"http", {
+					{"status", status},
+					{"headers", {
+						{"Content-Type", {content_type}},
+						{"Content-Length", {std::to_string(size)}}
+						}}}
+				}
+			};
+			std::string method = std::string("Callback");
+			return Call(method, j_response, goctx);
+		}
+		// Callback overload to easily generate standard json for response
+		// encoded in JSON.
+		elv_return_type CallbackDisposition(int status, const char* content_type, int size, const char* filename){
+			auto fileTagPart = string_format("filename=%s;", filename);
+			nlohmann::json j_response = {
+				{"http", {
+					{"status", status},
+					{"headers", {
+						{"Content-Type", {content_type}},
+						{"Content-Length", {std::to_string(size)}},
+						{"Content-Disposition: attachment;", {fileTagPart}}
+						}}}
+				}
+			};
+			std::string method = std::string("Callback");
+			return Call(method, j_response, goctx);
+		}
 		// Callback calls the callback function for this context with the given args
 		// encoded in JSON.
-		std::pair<nlohmann::json, int> Callback(nlohmann::json& j){
+		elv_return_type Callback(nlohmann::json& j){
 			//auto jsonCallback = json::parse(args);
 			std::string method = std::string("Callback");
 			return Call(method, j, goctx);
 		}
 		// NewStream creates a new stream and returns its ID.
-		nlohmann::json NewStream(){
+		std::string NewStream(){
 			auto s = std::string("NewStream");
 			std::string blank("");
 			nlohmann::json j;
 			auto res = Call( s, j, goctx);
-			return res.first;
+			if (res.first.find("stream_id") == res.first.end() || res.second.IsError()){
+				LOG_INFO(this, "NewStream returned empty stream_id");
+				return "";
+			}
+			return res.first["stream_id"].get<string>();
+		}
+		// LibId returns the QLIBID for the current context
+		std::string LibId(){
+			auto s = std::string("LibId");
+			std::string blank("");
+			nlohmann::json j;
+			auto res = Call( s, j, goctx);
+			if (res.second.IsError()){
+				LOG_ERROR(this, "LibId Failed", "json", res.first.dump());
+				return "";
+			}
+			return res.first["qlibid"].get<std::string>();
 		}
 		// NewFileStream creates a new file and returns its ID.
 		nlohmann::json NewFileStream(){
@@ -266,7 +277,7 @@ namespace elv_context{
 			auto res = Call( s, j, goctx);
 			return res.first;
 		}
-		std::pair<nlohmann::json, int> WritePartToStream(std::string streamID, std::string qihot, std::string qphash, int offset = 0, int length = -1){
+		elv_return_type WritePartToStream(std::string streamID, std::string qihot, std::string qphash, int offset = 0, int length = -1){
 			nlohmann::json j;
 
 			j["stream_id"] = streamID;
@@ -280,7 +291,7 @@ namespace elv_context{
 			return Call( method, j, gocore);
 		}
 
-		std::pair<nlohmann::json, int> WritePartToStream(std::string streamID, std::string qphash,  int offset = 0, int length = -1){
+		elv_return_type WritePartToStream(std::string streamID, std::string qphash,  int offset = 0, int length = -1){
 			nlohmann::json j;
 
 			j["stream_id"] = streamID;
@@ -313,17 +324,18 @@ namespace elv_context{
 		//		}
 		//	}
 		//
-		std::pair<nlohmann::json, int> WriteStream(std::string streamToWrite, std::vector<unsigned char>& src, int len=-1){
+		elv_return_type WriteStream(std::string streamToWrite, std::vector<unsigned char>& src, int len=-1){
 			if (len == -1) {
 			  len = src.size();
 			}
 			auto res = CHAR_BASED_AUTO_RELEASE(Write((char*)_ID.c_str(), (char*)streamToWrite.c_str(), (char*)src.data(), len));
 			if (res.get() != 0){
 				auto j_res = nlohmann::json::parse(res.get());
-				return make_pair(j_res, 0);
+				return make_pair(j_res, E(false));
 
 			}else{
-				return make_error("ReadStream call failed", -1);
+				const char* msg = "ReadStream call failed";
+				return make_error(msg,E(msg).Kind(E::Other));
 			}
 		}
 		// ReReadStream reads at most dst.size() bytes from the stream with the given stream ID (streamToRead)
@@ -349,13 +361,14 @@ namespace elv_context{
 		//		}
 		//	}
 		//
-		std::pair<nlohmann::json, int> ReadStream(std::string streamToRead, std::vector<unsigned char>&  dst){
+		elv_return_type ReadStream(std::string streamToRead, std::vector<unsigned char>&  dst){
 			auto res = CHAR_BASED_AUTO_RELEASE(Read((char*)_ID.c_str(), (char*)streamToRead.c_str(), (char*)dst.data(), dst.size()));
 			if (res.get() != 0){
 				auto j_res = nlohmann::json::parse(res.get());
-				return make_pair(j_res, 0);
+				return make_pair(j_res, E(false));
 			}else{
-				return make_error("ReadStream call failed", -1);
+				const char* msg = "ReadStream call failed";
+				return make_error(msg, E(msg).Kind(E::IO));
 			}
 		}
 		// CloseStream closes the given stream. After closing a stream, any call to
@@ -370,7 +383,7 @@ namespace elv_context{
 		// Call invokes a function on a provided bitcode module and passes the
 		// JSON-encoded arguments. The return value is a JSON text with the result,
 		// or an error (e.g. if the module of function cannot be found).
-		std::pair<nlohmann::json, int> Call(std::string& functionName, nlohmann::json& j, std::string module){
+		elv_return_type Call(std::string& functionName, nlohmann::json& j, std::string module){
 			try{
 				nlohmann::json j_outer;
 				j_outer["jpc"] = "1.0";
@@ -387,12 +400,12 @@ namespace elv_context{
 							nlohmann::json j_result;
 							res["result"] = j_result;
 						}
-						return make_pair(res["result"], 0);
+						return make_pair(res["result"], E(false));
 					}
 					else
-						return make_pair(res["error"], -1);
+						return make_pair(res["error"], E("result not avaliable").Kind(E::Other));
 				}else{
-					return make_error("JPC call failed", -1);
+					return make_error("JPC call failed", E("JPC call failed").Kind(E::Other));
 				}
 				// PENDING(LUK): this should return a parsed JSON, not a string, to be consistent
 			}catch (nlohmann::json::exception& e){
@@ -416,86 +429,166 @@ namespace elv_context{
 			log("ERROR", msg, fields);
 		}
 
-		int KVSet(char *key, char *val){
+		int KVSet(const char *key, const char *val){
 			nlohmann::json j;
+			nlohmann::json j_inner;
 
-			j["key"] = key;
-			j["val"] = val;
+			j_inner[key] = val;
 
-			std::string method = "KVSet";
-			auto ret = Call( method, j, gocore);
-			return ret.second;
-		}
-		char* KVGetTemp(char *key){
-			nlohmann::json j;
+			j["path"] = key;
+			j["meta"] = j_inner;
 
-			j.clear();
-			j["key"] = key;
-
-			std::string method = "KVGetTemp";
+			std::string method = "SQMDSet";
 
 			auto ret = Call( method, j, gocore);
-			if (ret.second != 0){
-				LOG_ERROR(this, ret.first["error"]["message"]);
-				return 0;
+			if (ret.second.IsError()){
+				LOG_ERROR(this, "KVset", "key", key, "val", val, "JSON", ret.first.dump());
+				return -1;
 			}
-			return AllocateMemoryAndCopyString(ret.first["result"].get<std::string>());
-		}
-		int KVPushBack(char *key, char *val){
-			nlohmann::json j;
-
-			j["key"] = key;
-			j["val"] = val;
-
-			std::string method = "KVPushBack";
-
-			auto ret = Call( method, j, gocore);
-			return ret.second;
-		}
-		char* KVRangeTemp(char *key){
-			nlohmann::json j;
-
-			j["key"] = key;
-
-			std::string method = "KVRangeTemp";
-
-			auto ret = Call( method, j, gocore);
-			if (ret.second != 0){
-				LOG_ERROR(this, ret.first["error"]["message"]);
-				return 0;
-			}
-			return AllocateMemoryAndCopyString(ret.first["result"]);
-		}
-		char* QCreatePart(char *content, uint32_t sz){
-			// nlohmann::json j;
-
-			// j["qlib_id"] = libid;
-			// j["qw_token"] = token;
-			// j["path"] = path;
-		// 	std::string method = "QCreatePart";
-		// 	std::string params = json_rep;
-		// 	auto ret = Call(_Module, method, params);
-		// 	return (char*)std::get<0>(ret).c_str();
-		//
-			// This cannot use a string return it needs to use the streams
 			return 0;
 		}
-		char* QReadPart(char * phash, uint32_t start, uint32_t sz, uint32_t *psz){
+		bool KVSetMutable(const char* id, const char *key, const char *val){
+			nlohmann::json j;
+			nlohmann::json j_inner;
+
+			j_inner[key] = val;
+
+			j["path"] = key;
+			j["meta"] = j_inner;
+			j["qihot"] = id;
+
+			LOG_DEBUG(this, "KVSetMutable",  "json", j.dump());
+
+			std::string method = "SQMDSet";
+
+			auto ret = Call( method, j, gocore);
+			if (ret.second.IsError()){
+				LOG_ERROR(this, "KVsetMutable", "path", key, "JSON", ret.first.dump());
+				return false;
+			}
+			return true;
+		}
+		std::string KVGet(const char *key){
+			nlohmann::json j;
+
+			j["path"] = key;
+
+			std::string method = "SQMDGet";
+
+			auto ret = Call( method, j, gocore);
+			if (ret.second.IsError()){
+				LOG_ERROR(this, ret.first.dump());
+				return "";
+			}
+			LOG_INFO(this,"KVGet", "JSON",ret.first.dump());
+			if (ret.first.find(key) != ret.first.end())
+				return ret.first[key].get<std::string>();
+			else
+				return ret.first.get<std::string>();
+		}
+		const char* KVGetTemp(char *key){
+			const char* msg = "KVGetTemp no longer supported";
+			LOG_ERROR(this,msg);
+			return msg;
+		}
+		const char* KVRangeTemp(char *key){
+			const char* msg = "KVRangeTemp no longer supported";
+			LOG_ERROR(this,msg);
+			return msg;
+		}
+		// CheckSumPart calculates a checksum of a given content part.
+		// - sum_method:    checksum method ("MD5" or "SHA256")
+		// - qphash:        hash of the content part to checksum
+		// - qihot:         content ID, hash or write token
+		// - qlibid:        optional content library ID if content is in a different
+		//                  library than the one linked to the call context
+		//  Returns the checksum as hex-encoded string
+		elv_return_type CheckSumPart(std::string sum_method, std::string qphash, std::string qihot, std::string qlibid){
+			nlohmann::json j;
+
+			j["method"] = sum_method;
+			j["qphash"] = qphash;
+			j["qihot"] = qihot;
+			j["qlibid"] = qlibid;
+
+			std::string method = "QCheckSumPart";
+
+			return Call( method, j, gocore);
+
+		}
+		// CheckSumFile calculates a checksum of a file in a file bundle
+		// - sum_method:    checksum method ("MD5" or "SHA256")
+		// - file_path:     the path of the file in the bundle
+		// - qihot:         content ID, hash or write token
+		// - qlibid:        optional content library ID if content is in a different
+		//                  library than the one linked to the call context
+		//  Returns the checksum as hex-encoded string
+		elv_return_type CheckSumFile(std::string sum_method, std::string file_path, std::string qihot, std::string qlibid){
+			nlohmann::json j;
+
+			j["method"] = sum_method;
+			j["file_path"] = file_path;
+			j["qihot"] = qihot;
+			j["qlibid"] = qlibid;
+
+			std::string method = "QCheckSumFile";
+
+			return Call( method, j, gocore);
+
+		}
+		elv_return_type QListContentFor(std::string qlibid){
+			nlohmann::json j;
+
+			j["external_lib"] = qlibid;
+
+			std::string method = "QListContentFor";
+
+			return Call( method, j, gocore);
+
+		}
+		std::string QCreatePart(std::string qwt, std::vector<uint8_t>& input_data){
+			auto sid = NewStream();
+			auto ret_s = WriteStream(sid.c_str(), input_data);
+			if (ret_s.second.IsError()){
+				const char* msg = "writing part to stream";
+				LOG_ERROR(this, msg);
+				CloseStream(sid);
+				return msg;
+			}
+			auto written = ret_s.first["written"].get<int>();
+			input_data.resize(written);
+			nlohmann::json j;
+			j["qwtoken"] = qwt;
+			j["stream_id"] = sid;
+			std::string method = "QCreatePartFromStream";
+			auto ret = Call(method, j, gocore);
+			CloseStream(sid);
+			if (ret.second.IsError()){
+				const char* msg = "QCreatePartFromStream";
+				LOG_ERROR(this, msg, "inner_error", ret.first.dump());
+				return "";
+			}
+			return ret.first["qphash"].get<string>();
+		}
+		std::shared_ptr<std::vector<uint8_t>>
+		QReadPart(const char * phash, uint32_t start, uint32_t sz, uint32_t *psz){
 			// MORE ERROR HANDLING!!! JPF
-			auto s = NewStream();
-			auto sid = s["stream_id"];
+			auto sid = NewStream();
 			auto ret = WritePartToStream(sid, phash);
-			LOG_INFO(this, "return from WritePart=",ret.first.dump());
+			LOG_INFO(this, "WritePartToStream", "return_val", ret.first.dump());
 			auto written = ret.first["written"].get<int>();
 			sz = sz <= -1 ? written : sz;
 			std::vector<uint8_t> vec_ret(written > sz ? sz : written);
 			auto sread = ReadStream(sid, vec_ret);
-			LOG_INFO(this, "return from ReadStream=",sread.first.dump());
+			LOG_INFO(this, "ReadStream","read", sread.first.dump());
 			*psz = sread.first["read"].get<int>();
-			return (char*)AllocateMemoryAndCopyBuffer(vec_ret.data(), sz);
+			return std::make_shared<std::vector<uint8_t>>(vec_ret);
+		}
+		std::string SQMDGetString(const char *path){
+			return SQMDGetString((char*)path);
 		}
 
-		char* SQMDGetString(char *path){
+		std::string SQMDGetString(char *path){
 			nlohmann::json j;
 
 			//j["qihot"] = token;
@@ -504,15 +597,15 @@ namespace elv_context{
 			std::string method = "SQMDGet";
 
 			auto ret = Call( method, j, gocore);
-			if (ret.second != 0){
-				LOG_ERROR(this, ret.first["error"]["message"]);
-				return 0;
+			if (ret.second.IsError()){
+				LOG_ERROR(this, "SQMDGetString", "inner_error", ret.first.dump());
+				return "";
 			}
 			LOG_INFO(this,"json=",ret.first.get<string>());
-			return AllocateMemoryAndCopyString(ret.first.get<string>());
+			return ret.first.get<string>();
 		}
 
-		char* SQMDGetJSON(char *path){
+		elv_return_type SQMDGetJSON(const char *path){
 			nlohmann::json j;
 
 			//j["qihot"] = token;
@@ -520,41 +613,37 @@ namespace elv_context{
 
 			std::string method = "SQMDGet";
 
-			auto ret = Call( method, j, gocore);
-			if (ret.second != 0){
-				LOG_ERROR(this, ret.first["error"].dump());
-				return 0;
-			}
-			LOG_INFO(this,"json=",ret.first.dump());
-			return AllocateMemoryAndCopyString(ret.first.dump());
+			return Call( method, j, gocore);
 		}
-		char* SQMDQueryJSON(char *token, char *query){
+		elv_return_type SQMDGetJSON(const char* hash, const char *path){
 			nlohmann::json j;
 
-			j["qihot"] = token;
-			j["query"] = query;
+			j["qihot"] = hash;
+			j["path"] = path;
 
-			std::string method = "SQMDQuery";
+			std::string method = "SQMDGet";
 
-			auto ret = Call( method, j, gocore);
-			if (ret.second != 0){
-				LOG_ERROR(this, ret.first["error"]["message"]);
-				return 0;
-			}
-			return AllocateMemoryAndCopyString(ret.first["result"]);
+			return Call( method, j, gocore);
 		}
-		int64_t SQMDClearJSON(char *path, char* j_rep){
+		elv_return_type SQMDGetJSON(const char* qlibid, const char* qhash, const char *path){
+			nlohmann::json j;
+ 			j["path"] = path;
+			j["qlibid"] = qlibid;
+			j["qhash"] = qhash;
+ 			std::string method = "SQMDGetExternal";
+			LOG_INFO(this, "About to call", "path", path, "qlibid", qlibid, "qhash", qhash);
+ 			return Call( method, j, gocore);
+		}
+		elv_return_type SQMDClearJSON(char *path, char* j_rep){
 			nlohmann::json j;
 
 			j["path"] = path;
 
 			std::string method = "SQMDClear";
 
-			auto ret = Call( method, j, gocore);
-
-			return ret.second;
+			return Call( method, j, gocore);
 		}
-		int64_t SQMDDeleteJSON(char *token, char *path){
+		elv_return_type SQMDDeleteJSON(char *token, char *path){
 			nlohmann::json j;
 
 			j["qwtoken"] = token;
@@ -562,10 +651,9 @@ namespace elv_context{
 
 			std::string method = "SQMDDelete";
 
-			auto ret = Call( method, j, gocore);
-			return ret.second;
+			return Call( method, j, gocore);
 		}
-		int64_t SQMDSetJSON(char *path, char* j_rep){
+		elv_return_type SQMDSetJSON(const char *path, const char* j_rep){
 			nlohmann::json j;
 
 			j["path"] = path;
@@ -573,10 +661,9 @@ namespace elv_context{
 
 			std::string method = "SQMDSet";
 
-			auto ret = Call( method, j, gocore);
-			return ret.second;
+			return Call( method, j, gocore);
 		}
-		int64_t SQMDMergeJSON(char *path, char* j_rep){
+		elv_return_type SQMDMergeJSON(char *path, char* j_rep){
 			nlohmann::json j;
 
 			j["path"] = path;
@@ -584,13 +671,19 @@ namespace elv_context{
 
 			std::string method = "SQMDMerge";
 
-			auto ret = Call( method, j, gocore);
-			return ret.second;
+			return Call( method, j, gocore);
 		}
-		char* KVGet(char *key){
-			return SQMDGetJSON(key);
+		elv_return_type SQMDMergeJSONEx(const char *path, nlohmann::json& j_rep){
+			nlohmann::json j;
+
+			j["path"] = path;
+			j["meta"] = j_rep;
+
+			std::string method = "SQMDMerge";
+
+			return Call( method, j, gocore);
 		}
-		char* KVRange(char *key){
+		std::string KVRange(char *key){
 			nlohmann::json j;
 
 			j["key"] = key;
@@ -598,111 +691,92 @@ namespace elv_context{
 			std::string method = "KVRange";
 
 			auto ret = Call( method, j, gocore);
-			if (ret.second != 0){
-				LOG_ERROR(this, ret.first["error"]["message"]);
+			if (ret.second.IsError()){
+				LOG_ERROR(this, "KVRange", "inner_error", ret.first.dump());
 				return 0;
 			}
-			return AllocateMemoryAndCopyString(ret.first["result"]);
+			return ret.first["result"].dump();
 		}
-		int QPartInfo(char *part_hash_or_token){
+		elv_return_type QPartInfo(char *part_hash_or_token){
 			nlohmann::json j;
 
 			j["qphash_or_token"] = part_hash_or_token;
 			std::string method = "QPartInfo";
 
-			auto ret = Call( method, j, gocore);
-			if (ret.second != 0){
-				LOG_ERROR(this,ret.first.dump());
-			}
-			return ret.second;
+			return Call( method, j, gocore);
 		}
-		int64_t  FFMPEGRun(char* cmdline, int sz){
+		elv_return_type FFMPEGRun(char* cmdline, int sz){
 			nlohmann::json j;
 
 			j["stream_params"] = cmdline;
 			j["stream_params_size"] = sz;
 			std::string method = "FFMPEGRun";
 
-			auto ret = Call( method, j, goext);
-			return ret.second;
+			return Call( method, j, goext);
 		}
-		int64_t  FFMPEGRun(char** cmdline, int argument_count){
+		elv_return_type  FFMPEGRun(char** cmdline, int argument_count){
 			nlohmann::json j;
+			nlohmann::json j_args;
+			for (int i = 0; i < argument_count; i++){
+				j_args.push_back(cmdline[i]);
+			}
 
-			char inputArray[65536];
-			int arrayLen = MemoryUtils::packStringArray(inputArray, cmdline, argument_count);
-			auto enc = base64_encode((const unsigned char*)inputArray, arrayLen);
-
-			j["stream_params"] = enc;
+			j["stream_params"] = j_args;
 			std::string method = "FFMPEGRun";
 
-			auto ret = Call( method, j, goext);
-			return ret.second;
+			return  Call( method, j, goext);
 		}
-		int64_t FFMPEGRunEx(char** cmdline, int argument_count, std::string& in_files){
+		elv_return_type FFMPEGRunEx(char** cmdline, int argument_count, std::string& in_files){
 			nlohmann::json j;
+			nlohmann::json j_args;
 
-			char inputArray[65536];
-			int arrayLen = MemoryUtils::packStringArray(inputArray, cmdline, argument_count);
-			auto enc = base64_encode((const unsigned char*)inputArray, arrayLen);
-
-			j["stream_params"] = enc;
+			for (int i = 0; i < argument_count; i++){
+				j_args.push_back(cmdline[i]);
+			}
+			j["stream_params"] = j_args;
 			j["stream_files"] = in_files;
 			std::string method = "RunEx";
 
-			auto ret = Call( method, j, goext);
-			return ret.second;
+			return Call( method, j, goext);
 		}
-		int64_t FFMPEGRunVideo(char** cmdline, int argument_count, std::string& in_files){
+		elv_return_type FFMPEGRunVideo(char** cmdline, int argument_count, std::string& in_files){
 			nlohmann::json j;
+			nlohmann::json j_args;
 
-			char inputArray[65536];
-			int arrayLen = MemoryUtils::packStringArray(inputArray, cmdline, argument_count);
-			auto enc = base64_encode((const unsigned char*)inputArray, arrayLen);
-
-			j["stream_params"] = enc;
+			for (int i = 0; i < argument_count; i++){
+				j_args.push_back(cmdline[i]);
+			}
+			j["stream_params"] = j_args;
 			j["stream_files"] = in_files;
 			std::string method = "RunVideo";
 
-			auto ret = Call( method, j, goext);
-			return ret.second;
+			return Call( method, j, goext);
 		}
-		char* KVList(char * libid, char * hash){
+		elv_return_type  FFMPEGRunLive(char** cmdline, int argument_count, std::string callback_name){
 			nlohmann::json j;
+			nlohmann::json j_args;
 
-			std::string method = "KVList";
-
-			auto ret = Call( method, j, gocore);
-			if (ret.second != 0){
-				LOG_ERROR(this, ret.first["error"]["message"]);
-				return 0;
+			for (int i = 0; i < argument_count; i++){
+				j_args.push_back(cmdline[i]);
 			}
-			return AllocateMemoryAndCopyString(ret.first["result"]);
+			j["stream_params"] = j_args;
+
+			j["update_callback"] = callback_name;
+			std::string method = "RunLive";
+
+			return  Call( method, j, goext);
 		}
-		int  FFMPEGRunLive(char* key, int key_sz, char* val, int val_sz, char* port,char* callback,char* libid,char* qwt){
+		void  FFMPEGStopLive(std::string& handle){
+			std::string method = "StopLive";
 			nlohmann::json j;
-
-			j["stream_key"] = key;
-			j["stream_key_size"] = key_sz;
-			j["stream_value"] = val;
-			j["stream_value_size"] = val_sz;
-
-			j["udp_port"] = port;
-			j["callback"] = callback;
-			j["qlib_id"] = libid;
-			j["qwt"] = qwt;
-
-			std::string method = "FFMPEGRunLive";
-
+			j["handle"] = handle;
 			auto ret = Call( method, j, "ext");
-			return ret.second;
+			if (ret.second.IsError()){
+				LOG_ERROR(this, "FFMPEGStopLive", "handle", handle, "reason", ret.first.dump())
+			}
 		}
-		void  FFMPEGStopLive(int){
-			std::string method = "FFMPEGStopLive";
-			nlohmann::json j;
-			auto ret = Call( method, j, "ext");
-		}
-		char* QSSGet(char* id, char* key){
+		// PENDING(JAN): REVIEW normalize all return types to elv_return_type
+		string QSSGet(const char* id, const char* key){
 			nlohmann::json j;
 
 			j["qssid"] = id;
@@ -711,13 +785,13 @@ namespace elv_context{
 			std::string method = "QSSGet";
 
 			auto ret = Call( method, j, gocore);
-			if (ret.second != 0){
-				LOG_ERROR(this, ret.first["error"]["message"]);
-				return 0;
+			if (ret.second.IsError()){
+				LOG_INFO(this, "QSSGet failed", ret.first.dump().c_str());
+				return "";
 			}
-			return AllocateMemoryAndCopyString(ret.first["result"]);
+			return ret.first.get<std::string>();
 		}
-		int QSSSet(char* id, char* key, char* val){
+		elv_return_type QSSSet(const char* id, const char* key, const char* val){
 			nlohmann::json j;
 
 			j["qssid"] = id;
@@ -725,51 +799,92 @@ namespace elv_context{
 			j["val"] = val;
 			std::string method = "QSSSet";
 
-			auto ret = Call( method, j, gocore);
-			return ret.second;
+			return Call( method, j, gocore);
 		}
-		int QSSDelete(char* id, char* key){
+		std::string QCreateQStateStore(){
+			nlohmann::json j;
+
+			std::string method = "QCreateQStateStore";
+
+			auto ret = Call( method, j, gocore);
+			if (!ret.second.IsError()){
+				return ret.first;
+			}
+			return "";
+		}
+		elv_return_type QCreateContent(std::string qtype, nlohmann::json jMeta){
+			nlohmann::json j;
+
+			j["qtype"] = qtype;
+			j["meta"] = jMeta;
+			std::string method = "QCreateContent";
+
+			return Call( method, j, gocore);
+		}
+		elv_return_type QSSDelete(char* id, char* key){
 			nlohmann::json j;
 
 			j["qssid"] = id;
 			j["key"] = key;
 			std::string method = "QSSDelete";
 
-			auto ret = Call( method, j, gocore);
-			return ret.second;
+			return Call( method, j, gocore);
 		}
-		char* QModifyContent(char* id, char* type){
+		std::string QModifyContent(const char* type){
 			nlohmann::json j;
 
-			j["qid"] = id;
 			j["qtype"] = type;
+			j["meta"] = nlohmann::json({});
 			std::string method = "QModifyContent";
 
 			auto ret = Call( method, j, gocore);
-			if (ret.second != 0){
-				LOG_ERROR(this, ret.first["error"]["message"]);
-				return 0;
+			if (ret.second.IsError()){
+				LOG_ERROR(this, method, "inner_error", ret.first.dump());
+				return "";
 			}
-			return AllocateMemoryAndCopyString(ret.first["result"]);
+			return ret.first["qwtoken"].get<string>();
 		}
-		char* QFinalizeContent(char* token){
+		std::string QModifyContent(const char* id, const char* type){
+			nlohmann::json j;
+
+			j["qihot"] = id;
+			j["qtype"] = type;
+			j["meta"] = nlohmann::json({});
+			std::string method = "QModifyContent";
+
+			auto ret = Call( method, j, gocore);
+			if (ret.second.IsError()){
+				LOG_ERROR(this, ret.first.dump());
+				return "";
+			}
+			return ret.first["qwtoken"].get<string>();
+		}
+		std::pair<std::string, std::string> QFinalizeContent(std::string token){
 			nlohmann::json j;
 
 			j["qwtoken"] = token;
 			std::string method = "QFinalizeContent";
 
 			auto ret = Call( method, j, gocore);
-			if (ret.second != 0){
-				LOG_ERROR(this, ret.first["error"]["message"]);
-				return 0;
+			if (ret.second.IsError()){
+				LOG_ERROR(this, ret.first.dump());
+				return make_pair("","");
 			}
-			return AllocateMemoryAndCopyString(ret.first["result"]);
+			return make_pair(ret.first["qid"].get<string>(), ret.first["qhash"].get<string>());
 		}
 		char* GetCallingUser(){
 			// TODO This needs to point to a Go routine
 			return (char*)"Anonymous";
 		}
-		int64_t TaggerRun(char* cmdline, int sz){
+		elv_return_type QPublishContent(std::string hash){
+			nlohmann::json j;
+
+			j["qhash"] = hash;
+			std::string method = "QPublishContent";
+
+			return Call( method, j, gocore);
+		}
+		elv_return_type TaggerRun(char* cmdline, int sz){
 			nlohmann::json j;
 
 			j["stream_params"] = cmdline;
@@ -777,29 +892,63 @@ namespace elv_context{
 
 			std::string method = "TaggerRun";
 
-			auto ret = Call( method, j, gocore);
-			return ret.second;
+			return Call( method, j, gocore);
 		}
-		int64_t TaggerRun(char** cmdline, int argument_count){
+		elv_return_type TaggerRun(char** cmdline, int argument_count, std::string& in_files){
 			nlohmann::json j;
+			nlohmann::json j_args;
 
-			char inputArray[65536];
-			int arrayLen = MemoryUtils::packStringArray(inputArray, cmdline, argument_count);
-			auto enc = base64_encode((const unsigned char*)inputArray, arrayLen);
-
-			j["stream_params"] = enc;
+			for (int i = 0; i < argument_count; i++){
+				j_args.push_back(cmdline[i]);
+			}
+			j["stream_params"] = j_args;
+			j["stream_files"] = in_files;
 			std::string method = "TaggerRun";
 
-			auto ret = Call( method, j, goext);
-			return ret.second;
+			return Call( method, j, goext);
 		}
 
 
-		std::pair<nlohmann::json, int> WriteOutput(std::vector<unsigned char>& src, int len = -1){
+		elv_return_type WriteOutput(std::vector<unsigned char>& src, int len = -1){
 			return WriteStream(Output(), src,len);
 		}
-		std::pair<nlohmann::json, int> ReadInput(std::vector<unsigned char>& dst){
+		elv_return_type ReadInput(std::vector<unsigned char>& dst){
 			return ReadStream(Input(), dst);
+		}
+
+		std::pair<std::map<std::string, std::string>, E> QueryParams(JPCParams& j_params){
+			std::map<std::string, std::string> queryParams;
+			if (j_params.find("http") != j_params.end()){
+				auto j_http = j_params["http"];
+				auto& q = j_http["query"];
+
+				LOG_DEBUG(this, "HttpParams:", "query", q.dump());
+				for (auto& element : q.items()) {
+					if (element.value().type() ==  nlohmann::json::value_t::array){
+						queryParams[element.key()] = element.value()[0];
+					}else{
+						queryParams[element.key()] = element.value();
+					}
+				}
+				return make_pair(queryParams, E(false));
+			}
+			return make_pair(queryParams, E(true).Kind(eluvio_errors::ErrorKinds::BadHttpParams));
+		}
+		std::pair<std::string, E> HttpParam(JPCParams& j_params, std::string param_name){
+			if (j_params.find("http") != j_params.end()){
+				auto j_http = j_params["http"];
+				if (j_http.find(param_name) != j_http.end())
+					return std::make_pair(j_http[param_name].get<std::string>(), E(false));
+			}
+			return make_pair("", E(true).Kind(eluvio_errors::ErrorKinds::BadHttpParams));
+		}
+		std::pair<nlohmann::json, E> HttpHeaders(JPCParams& j_params){
+			if (j_params.find("http") != j_params.end()){
+				auto j_http = j_params["http"];
+				if (j_http.find("headers") != j_http.end())
+					return std::make_pair(j_http["headers"], E(false));
+			}
+			return std::make_pair(nlohmann::json({}), E(true).Kind(eluvio_errors::ErrorKinds::BadHttpParams));
 		}
 
 	private:
@@ -838,6 +987,7 @@ namespace elv_context{
 
 	};
 
+
 	// // TBD json format for init
 	// extern "C" int _context_init(int outsz, char* outbuf, char* argbuf){
 	// 	ArgumentBuffer args(argbuf);
@@ -845,53 +995,6 @@ namespace elv_context{
 	// 	return 0;
 	// }
 
-
-	class FileUtils{
-	public:
-
-		static auto loadFromFile(BitCodeCallContext* ctx, const char* filename){
-			char targetFilename[1024];
-			sprintf(targetFilename, "%s",  filename);
-			FILE* targetFile = fopen(targetFilename, "rb");
-
-			if (!targetFile){
-				LOG_ERROR(ctx, "Error: Unable to open", targetFilename);
-				return CHAR_BASED_AUTO_RELEASE(0);
-			}
-			fseek(targetFile, 0, SEEK_END);
-			long fsize = ftell(targetFile);
-			fseek(targetFile, 0, SEEK_SET);  //same as rewind(f);
-
-			auto segData = CHAR_BASED_AUTO_RELEASE((char*)malloc(fsize + 1));
-			int cb = fread(segData.get(), 1, fsize, targetFile);
-			if (cb != fsize){
-				LOG_ERROR(ctx, "Did not read all the data");
-				return CHAR_BASED_AUTO_RELEASE(0);
-			}
-			char* pd = segData.get();
-			pd[cb] = 0;
-			fclose(targetFile);
-
-			if (GlobalCleanup::shouldCleanup()){
-				if (unlink(targetFilename) < 0) {
-					LOG_ERROR(ctx, "Failed to remove temporary ffmpeg output file=", targetFilename);
-				}
-			}
-
-			return segData;
-		}
-		static std::pair<nlohmann::json, int> loadFromFileAndPackData(BitCodeCallContext* ctx, const char* filename, const char* contenttype, int segno=0, float duration = 0.0){
-			return ctx->make_error("NO LONGER SUPPORTED FUNCTION", -1);
-		}
-
-
-		/* Write out a 'resource' as a file for ffmpeg to use as input */
-		static int
-		resourceToFile(BitCodeCallContext* ctx, char *phash, char *resname, char avtype)
-		{
-			return -1;
-		}
-	};
 }; // end namespace
 
 
@@ -933,7 +1036,7 @@ try{
 	int call_ret = 0;
 	if (callee != 0){
 		auto res = callee(ctx,  jpc_params);
-		if (res.second == 0){
+		if (!res.second.IsError()){
 			j_return["result"] = res.first;
 		} else {
 		    j_return["error"] = res.first;
@@ -943,7 +1046,7 @@ try{
 		call_ret = ArgumentBuffer::argv2buf(vec, out, cb);
 	}else{
 		std::string error_msg = "unknown method " + method;
-		j_return["error"] = ctx->make_error(error_msg, -1);
+		j_return["error"] = E(error_msg.c_str()).Kind(E::Other).getJSON();
 		std::vector<std::string> vec;
 		vec.push_back(j_return.dump());
 		call_ret = ArgumentBuffer::argv2buf(vec, out, cb);
@@ -953,25 +1056,20 @@ try{
 }catch (nlohmann::json::exception& e){
 	std::string ret = "message: ";
 	ret += e.what();
-	ret += '\n';
 	ret += "exception id: ";
 	ret +=  e.id;
-	ret += '\n';
-	j_return["error"] = ctx->make_error(ret, -1);
+	j_return["error"] = E(ret).Kind(E::Other).Cause(e.what()).getJSON();
 	std::vector<std::string> vec;
 	vec.push_back(j_return.dump());
 	return ArgumentBuffer::argv2buf(vec, out, cb);
 }catch(std::exception& e){
-	std::string ret = "message: ";
-	ret += e.what();
-	ret += '\n';
-	j_return["error"] = ctx->make_error(ret, -1);
+	j_return["error"] = E("_JPC").Cause(e.what()).getJSON();
 	std::vector<std::string> vec;
 	vec.push_back(j_return.dump());
 	return ArgumentBuffer::argv2buf(vec, out, cb);
 }catch(...){
-	std::string ret = "ELIPSIS handler caught exception\n";
-	j_return["error"] = ctx->make_error(ret, -1);
+	std::string ret = "_JPC ELIPSIS handler caught exception";
+	j_return["error"] = E(ret).getJSON();
 	std::vector<std::string> vec;
 	vec.push_back(j_return.dump());
 	return ArgumentBuffer::argv2buf(vec, out, cb);

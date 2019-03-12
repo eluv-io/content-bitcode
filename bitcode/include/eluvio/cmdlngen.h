@@ -196,14 +196,7 @@ public:
     }
 
     std::string GetFontPath(){
-        std::string temp_font_path = std::string(base_temp_path) + std::string("el-font-file.ttf");
-        if (!file_exists(temp_font_path)){
-            std::string str = base64_decode(ffmpeg_elv_fontspace::elv_mono_font_base64);
-            std::ofstream out(temp_font_path);
-            out << str;
-            out.close();
-        }
-        return temp_font_path;
+        return std::string("%FONTFILE%");
     }
 
 
@@ -291,11 +284,10 @@ public:
         if (!GoGenerate){
             char buf[1024];
             strcpy(buf, dummy_filename_template);
-            LOG_INFO(_ctx, "tempfile=", mktemp(buf));
             dummyName = base_temp_path;
             dummyName += std::string(buf);
             dummyName += ".mpd";
-            LOG_INFO(_ctx, dummyName);
+            LOG_INFO(_ctx, "GetManifestPath", "tempfile", mktemp(buf), "dummy_name", dummyName);
             return dummyName;
         }else{
             return std::string("%MANIFEST%");
@@ -398,10 +390,10 @@ public:
 
     std::vector<std::string> GetArgsOutput(){
         std::vector<std::string>  ret;
-        float duration = (float)_params.seg_duration_secs + (_params.avtype == 'a' ? audio_segment_padding_seconds : video_segment_padding_seconds);
+        elv_fp duration = (elv_fp)_params.seg_duration_secs + (_params.avtype == 'a' ? audio_segment_padding_seconds : video_segment_padding_seconds);
         ret.push_back("-seg_duration");
         char buf[128];
-        sprintf(buf,"%f", duration);
+        sprintf(buf,"%.6f", duration);
         ret.push_back(std::string(buf));
         AppendTo(ret, GetArgsDashFixed());
         ret.push_back("-init_seg_name");

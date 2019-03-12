@@ -20,10 +20,6 @@ struct avpart {
     std::string phash;
     std::string temp_file_name;
 
-    void dump() {
-        std::cout << "  " << start_secs << "-" << end_secs << " part: " <<
-            phash << " tmp: " << temp_file_name << std::endl;
-    }
 };
 
 struct representation {
@@ -48,7 +44,7 @@ struct dash_params {
     representation rep;
     std::vector<avpart> part_list;
 
-    void dump() {
+    void dump(BitCodeCallContext* ctx) {
         std::cout << "avtype: " << avtype << std::endl;
         std::cout << "language: " << language << std::endl;
         std::cout << "rep_name: " << rep_name << std::endl;

@@ -1,12 +1,6 @@
 /*
- * AVMASTER2000.IMF - custom content type
- *
- * Implements the AVMASTER2000 specific API.
- *
-  Build commands:
-
-  /usr/local/opt/llvm/bin/clang++ -Wall -std=c++11 -I pointer to /nlohman/json/include -fno-exceptions -emit-llvm -fno-use-cxa-atexit -c -g avmaster2000.cpp -o avmaster2000.imf.bc
-*/
+ * The same as avmaster, but the video function creates a much shorter clip instead
+ */
 
 #include <stdio.h>
 #include <string.h>
@@ -144,12 +138,10 @@ make_video(BitCodeCallContext* ctx, const char* pStart, const char* pEnd, nlohma
         (char*)"debug",
         (char*)"-i",
         (char*)"%INPUTFILE%",
-        (char*)"-ss",
-        (char*)"MISSED",
-        (char*)"-c:v",
-        (char*)"copy",
-        (char*)"-c:a",
-        (char*)"copy",
+        (char*)"-vf",
+        (char*)R"(select='lt(mod(t\,10)\,0.5)',setpts=N/FRAME_RATE/TB)",
+        (char*)"-af",
+        (char*)R"(aselect='lt(mod(t\,10)\,0.5)',asetpts=N/SR/TB)",
         (char*)"%MEDIA%"};
 
     int szFullParams = sizeof(inputsFullVideo)/sizeof(char*);
@@ -184,8 +176,6 @@ make_video(BitCodeCallContext* ctx, const char* pStart, const char* pEnd, nlohma
     if (!isFullVideo){
         inputs[8] = (char*)pStart;
         inputs[10] = (char*)pEnd;
-    }else{
-        inputs[8] = (char*)pStart;
     }
     nlohmann::json j;
     auto inputStream = ctx->NewStream();

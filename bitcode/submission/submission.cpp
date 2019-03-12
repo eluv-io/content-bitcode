@@ -24,68 +24,66 @@ using namespace elv_context;
 /*
  *  Outputs mp4 from key 'webisode.video' with content type video/mp4
  */
-std::pair<nlohmann::json, int> make_video(BitCodeCallContext* ctx){
-    auto phash = CHAR_BASED_AUTO_RELEASE(ctx->KVGet((char*)"webisode.video"));
-    if (phash.get() == NULL) {
-        printf("Failed to read resource part\n");
-        return ctx->make_error("Failed to read resource part", -101);
+elv_return_type make_video(BitCodeCallContext* ctx){
+    auto phash = ctx->KVGet((char*)"webisode.video");
+    if (phash == "") {
+        const char* msg = "Failed to read resource part webisode.video";
+        return ctx->make_error(msg, E(msg).Kind(E::NotExist));
     }
-    printf("DBG-SUBMISSION webisode.video part_hash=%s\n", phash.get());
+    LOG_INFO(ctx, "make_video", "webisode.video part_hash", phash.c_str());
 
     /* Read the part in memory */
     uint32_t psz = 0;
     uint64_t max_size = 39 * 1024 * 1024; // FIXME - need ability to stream result
-    auto body = CHAR_BASED_AUTO_RELEASE(ctx->QReadPart(phash.get(), 0, max_size, &psz));
-    if (body.get() == NULL) {
-        printf("Failed to read resource part\n");
-        return ctx->make_error("Failed to read resource part", -102);
+    auto body = ctx->QReadPart(phash.c_str(), 0, max_size, &psz);
+    if (body->size() == 0) {
+        const char* msg = "Failed to read resource part HASH";
+        LOG_ERROR(ctx, msg, "HASH", phash.c_str())
+        return ctx->make_error(msg, E(msg).Kind(E::NotExist));
     }
-    printf("DBG-SUBMISSION webisod.video part_size=%d\n", (int)psz);
+    LOG_INFO(ctx, "make_video",  "webisod.video part_size", (int)psz);
 
-    std::vector<uint8_t> vec(body.get(), body.get() + strlen(body.get()));
-    auto res = ctx->WriteOutput(vec);
-    if (res.second == 0){
-        return ctx->make_success();
-    }else{
-        return ctx->make_error("write output failed", -103);
+    auto res = ctx->WriteOutput(*body);
+    if (res.second.IsError()){
+        return ctx->make_error("write output failed", res.second);
     }
+    return ctx->make_success();
 }
 
 /*
  * Outputs PDF from key 'contract'
  */
-std::pair<nlohmann::json, int> make_pdf(BitCodeCallContext* ctx)
+elv_return_type make_pdf(BitCodeCallContext* ctx)
 {
-    auto phash = CHAR_BASED_AUTO_RELEASE(ctx->KVGet((char*)"contract"));
+    auto phash = ctx->KVGet((char*)"contract");
 
-    if (phash.get() == NULL) {
-        printf("Failed to read key\n");
-        return ctx->make_error("Failed to read key", -201);
+    if (phash == "") {
+        const char* msg = "Failed to read key contract";
+        return ctx->make_error(msg, E(msg).Kind(E::NotExist));
     }
-    printf("DBG-SUBMISSION contract part_hash=%s\n", phash.get());
+    LOG_INFO(ctx, "make_pdf contract", "part_hash", phash.c_str());
 
     /* Read the part in memory */
     uint32_t psz = 0;
-    auto body = CHAR_BASED_AUTO_RELEASE(ctx->QReadPart(phash.get(), 0, -1, &psz));
-    if (body.get() == NULL) {
-        printf("Failed to read resource part\n");
-        return ctx->make_error("Failed to read resource part", -202);
+    auto body = ctx->QReadPart(phash.c_str(), 0, -1, &psz);
+    if (body->size() == 0) {
+        const char* msg = "Failed to read resource part";
+        LOG_ERROR(ctx, msg, "HASH", phash.c_str());
+        return ctx->make_error(msg, E(msg).Kind(E::NotExist));
     }
-    printf("DBG-SUBMISSION contract part_size=%d\n", (int)psz);
+    LOG_INFO(ctx, "make_pdf contract",  "part_size", (int)psz);
 
-    std::vector<uint8_t> vec(body.get(), body.get() + strlen(body.get()));
-    auto res = ctx->WriteOutput(vec);
-    if (res.second == 0){
-        return ctx->make_success();
-    }else{
-        return ctx->make_error("write output failed", -103);
+    auto res = ctx->WriteOutput(*body);
+    if (res.second.IsError()){
+        return ctx->make_error(res.first, res.second);
     }
+    return ctx->make_success();
 }
 
 /*
   Renders an html page with a dash player.
 */
-std::pair<nlohmann::json,int> make_html(BitCodeCallContext* ctx, char *url)
+elv_return_type make_html(BitCodeCallContext* ctx, char *url)
 {
 
   size_t szUrl = strlen(url) + 1;
@@ -93,9 +91,10 @@ std::pair<nlohmann::json,int> make_html(BitCodeCallContext* ctx, char *url)
   strcpy(mp4Url,url);
 
   char *ext = strrchr(mp4Url, '.');
-  if(strcmp(ext,".html") != 0)
-    return ctx->make_error("bad format to url missing .html", -230);
-
+  if(strcmp(ext,".html") != 0){
+      const char* msg = "bad format to url missing .html";
+      return ctx->make_error(msg, E(msg).Kind(E::Other));
+  }
   /* replace html with mpd */
   if (ext != NULL)
       strcpy(ext, ".mp4");
@@ -129,11 +128,10 @@ std::pair<nlohmann::json,int> make_html(BitCodeCallContext* ctx, char *url)
     /* Prepare output */
     std::vector<uint8_t> vec(body, body + strlen(body));
     auto res = ctx->WriteOutput(vec);
-    if (res.second == 0){
-        return ctx->make_success();
-    }else{
-        return ctx->make_error("write output failed", -103);
+    if (res.second.IsError()){
+        return ctx->make_error("write output failed", res.second);
     }
+    return ctx->make_success();
 }
 
 /*
@@ -149,16 +147,15 @@ std::pair<nlohmann::json,int> make_html(BitCodeCallContext* ctx, char *url)
  *   http://localhost:8008/qlibs/ilibXXX/q/hq__XXX/rep/content.mp4
  *   http://localhost:8008/qlibs/ilibXXX/q/hq__XXX/rep/content.html
  */
-std::pair<nlohmann::json, int> content(BitCodeCallContext* ctx, JPCParams& p){
-    HttpParams params;
-    auto p_res = params.Init(p);
-    if (p_res.second != 0){
-        return ctx->make_error(p_res.first, p_res.second);
+elv_return_type content(BitCodeCallContext* ctx, JPCParams& p){
+    auto path = ctx->HttpParam(p, "path");
+    if (path.second.IsError()){
+        return ctx->make_error("getting path from JSON", path.second);
     }
 
     typedef enum eMKTypes { VIDEO , HTML, PDF } MKTypes;
 
-    char* pContentRequest = (char*)(params._path.c_str());
+    char* pContentRequest = (char*)(path.first.c_str());
     MKTypes mk;
 
     // int szUrl = 4*1024;
@@ -167,17 +164,20 @@ std::pair<nlohmann::json, int> content(BitCodeCallContext* ctx, JPCParams& p){
     // snprintf(url, szUrl, "http://localhost:8008/qlibs/%s/q/%s/rep%s",qlibid,qhash,pContentRequest);
 
     char *dot = strrchr(pContentRequest, '.');
-    if (!dot)
-        return ctx->make_error("libid not provided", -210);
-
+    if (!dot){
+        const char* msg = "libid not provided";
+        return ctx->make_error(msg, E(msg).Kind(E::Invalid));
+    }
     if (strcmp(dot, ".mp4") == 0)  // really need to return error if not matching any
         mk = VIDEO;
     else if (strcmp(dot, ".html") == 0)
         mk = HTML;
     else if (strcmp(dot, ".pdf") == 0)
         mk = PDF;
-    else
-        return ctx->make_error("libid not provided", -210);
+    else{
+        const char* msg = "libid not provided";
+        return ctx->make_error(msg, E(msg).Kind(E::Invalid));
+    }
 
     switch(mk){
     case VIDEO:
@@ -187,9 +187,14 @@ std::pair<nlohmann::json, int> content(BitCodeCallContext* ctx, JPCParams& p){
     case PDF:
         return make_pdf(ctx);
     default:
-        return ctx->make_error("default case hit unexpectedly", -211);
+        {
+        const char* msg  = "default case hit unexpectedly";
+        return ctx->make_error(msg, E(msg).Kind(E::Other));
+        }
     };
-    return ctx->make_error("default RETURN hit unexpectedly", -212);
+
+    const char* msg  = "default RETURN hit unexpectedly";
+    return ctx->make_error(msg, E(msg).Kind(E::Other));
 }
 
 int cddl_num_mandatories = 17;
@@ -221,13 +226,7 @@ char *cddl = (char*)"{"
  *   0 if valid
  *  >0 the number of validation problems (i.e. components missing or wrong)
  */
-std::pair<nlohmann::json,int> validate(BitCodeCallContext* ctx, JPCParams& p){
-    HttpParams params;
-    auto p_res = params.Init(p);
-    if (p_res.second != 0){
-        return ctx->make_error(p_res.first, p_res.second);
-    }
-
+elv_return_type validate(BitCodeCallContext* ctx, JPCParams& p){
     int found = cddl_parse_and_check(ctx, cddl);
 
     char valid_pct[4];
@@ -235,11 +234,10 @@ std::pair<nlohmann::json,int> validate(BitCodeCallContext* ctx, JPCParams& p){
 
     std::vector<uint8_t> vec(valid_pct, valid_pct + 4);
     auto res = ctx->WriteOutput(vec);
-    if (res.second == 0){
-        return ctx->make_success();
-    }else{
-        return ctx->make_error("write output failed", -103);
+    if (res.second.IsError()){
+        return ctx->make_error("write output failed", res.second);
     }
+    return ctx->make_success();
 }
 
 

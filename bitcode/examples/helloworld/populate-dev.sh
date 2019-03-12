@@ -12,6 +12,11 @@
 # Prerequisites
 hash jq || exit 1
 
+if [ "$#" -ne 1 ]; then
+    echo "A single parameter pointing to a valid image file is required!!"
+    exit -1
+fi
+
 bclist="helloworld.bc"
 bctype="helloworld"
 pubname="image"

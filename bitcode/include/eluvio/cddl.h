@@ -65,12 +65,11 @@ int cddl_parse_and_check(BitCodeCallContext* ctx, char *text) {
     do {
         p = cddl_get_key(p, key);
         if (p != NULL) {
-            LOG_INFO(ctx, "key=", key);
             p = cddl_get_value(p, value);
-            LOG_INFO(ctx, "val=", value);
+            LOG_INFO(ctx, "cddl_parse_and_check", "key", key, "val", value);
 
-            char *val = ctx->KVGet(key);
-            if (val != NULL && strlen(val) > 0) {
+            auto val = ctx->KVGet(key);
+            if (val != "" && val.length() > 0) {
                 LOG_INFO(ctx, "FOUND");
                 found ++;
             } else {

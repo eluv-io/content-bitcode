@@ -153,27 +153,6 @@ private:
     bool locked;
 };
 
-class MemoryUtils{
-public:
-
-    static int packStringArray( char* inputBuffer, const char* const * arrayToPack, int stringCount){
-        uint32_t* begin = (uint32_t *)inputBuffer;
-        inputBuffer += sizeof(int);  //skip over size of struct
-        int bufLen = sizeof(int);
-        for (int i = 0; i < stringCount; i++){
-            const char* curString = arrayToPack[i];
-            uint32_t len = strlen(curString);
-            *((uint32_t*)(inputBuffer)) = host_network_byte_order::htonl32(len);
-            inputBuffer += sizeof(int);
-            strcpy(inputBuffer, curString);
-            inputBuffer += len;
-            bufLen += len + sizeof(int);
-        }
-        *((uint32_t*)(begin)) = host_network_byte_order::htonl32(stringCount);
-        return bufLen;
-    }
-
-};
 
 
 

@@ -40,14 +40,14 @@ private:
     public:
         video_props_class _props;
         int video_seg_duration_dash;
-        float video_seg_duration_secs;
+        elv_fp video_seg_duration_secs;
     };
 
     class AudioAttributes{
     public:
         audio_props_class _props;
         int audio_seg_duration_dash;
-        float audio_seg_duration_secs;
+        elv_fp audio_seg_duration_secs;
     };
     bool GetVideo(){
         json jReps = m_j["representation_info"];
@@ -64,7 +64,7 @@ private:
                     vp.height = jCur["height"];
                     vp.width = jCur["width"];
                     std::string nameLocal = jCur["name"];
-                    vp.name = nameLocal + std::string("@") + std::to_string((int)jCur["bitrate"]);
+                    vp.name = nameLocal;
                     m_va._props.push_back(vp);
                 }
             }
@@ -85,7 +85,7 @@ private:
                     json jCur = *it;
                     ap.bitrate = jCur["bitrate"];
                     std::string nameLocal = jCur["name"];
-                    ap.name = nameLocal + std::string("@") + std::to_string((int)jCur["bitrate"]);
+                    ap.name = nameLocal;
                     m_aa._props.push_back(ap);
                 }
             }
@@ -95,7 +95,7 @@ private:
         return true;
     }
 
-    void CreateAdaptationSet(){
+    void CreateAdaptationSet(std::string auth){
         //videoAdaptations.push_back("AdaptationSet", R"({{"bitstreamSwitching" : true}, {"contentType" : "video"} }})");
         std::string adaptationsVideo;
         std::string adaptationsAudio;
@@ -133,7 +133,10 @@ private:
             char buf[2048];
             std::string lang = m_j["offering"]["language"];
             std::string time_scale = std::to_string((int)m_j["dash_options"]["video_timescale"]);
-            sprintf(buf,"' initialization='%s-$RepresentationID$-init.m4v' media='%s-$RepresentationID$-$Number$.m4v' startNumber='1' timescale='%s'></SegmentTemplate>\n", lang.c_str(), lang.c_str(), time_scale.c_str());
+            if (auth != "")
+                sprintf(buf,"' initialization='%s-$RepresentationID$-init.m4v?%s' media='%s-$RepresentationID$-$Number$.m4v?%s' startNumber='1' timescale='%s'></SegmentTemplate>\n", lang.c_str(), auth.c_str(), lang.c_str(), auth.c_str(), time_scale.c_str());
+            else
+                sprintf(buf,"' initialization='%s-$RepresentationID$-init.m4v' media='%s-$RepresentationID$-$Number$.m4v' startNumber='1' timescale='%s'></SegmentTemplate>\n", lang.c_str(), lang.c_str(), time_scale.c_str());
             adaptationsVideo += buf;
             adaptationsVideo += std::string("\n</Representation>\n");
 
@@ -151,7 +154,10 @@ private:
             char buf[2048];
             std::string lang = m_j["offering"]["language"];
             std::string time_scale = std::to_string((int)m_j["dash_options"]["audio_timescale"]);
-            sprintf(buf,"' initialization='%s-$RepresentationID$-init.m4a' media='%s-$RepresentationID$-$Number$.m4a' startNumber='1' timescale='%s'></SegmentTemplate>\n", lang.c_str(), lang.c_str(), time_scale.c_str());
+            if (auth != "")
+                sprintf(buf,"' initialization='%s-$RepresentationID$-init.m4a?%s' media='%s-$RepresentationID$-$Number$.m4a?%s' startNumber='1' timescale='%s'></SegmentTemplate>\n", lang.c_str(), auth.c_str(), lang.c_str(), auth.c_str(), time_scale.c_str());
+            else
+                sprintf(buf,"' initialization='%s-$RepresentationID$-init.m4a' media='%s-$RepresentationID$-$Number$.m4a' startNumber='1' timescale='%s'></SegmentTemplate>\n", lang.c_str(), lang.c_str(), time_scale.c_str());
             adaptationsAudio += buf;
             adaptationsAudio += std::string("\n</Representation>\n");
         }
@@ -169,7 +175,7 @@ private:
 
 public:
      DashManifest(json& j):m_j(j){}
-     std::string& Create(){
+     std::string& Create(std::string& auth){
         std::string headerString =  R"(<?xml version="1.0" encoding="UTF-8"?><MPD mediaPresentationDuration=')";
         std::string offering_prog_len = m_j["offering"]["program_length"];
         headerString += offering_prog_len;
@@ -177,7 +183,7 @@ public:
 
         GetVideo();
         GetAudio();
-        CreateAdaptationSet();
+        CreateAdaptationSet(auth);
 
         m_manifestString = headerString + m_adaptationSet;
         m_manifestString += "\n</Period></MPD>\n";
