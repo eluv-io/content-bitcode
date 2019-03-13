@@ -56,7 +56,7 @@ function make_content() {
     qhash=`curl -s -X POST $hdr $url/qlibs/$qlibid/q/$qwt | jq -r .hash`
 
     echo qhash: $qhash
-    echo URL: $url/qlibs/$qlibid/q/$qhash/rep/
+    echo URL: $url/qlibs/$qlibid/q/$qhash/rep/image
 }
 
 echo Library: $qlibid
