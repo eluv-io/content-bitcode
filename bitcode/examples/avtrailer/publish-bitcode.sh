@@ -1,9 +1,8 @@
 #!/bin/bash
 set -Eeuxo pipefail
 
-
-url="http://209.51.161.242:80"
-qlibid="ilib2AWdn731Mrrn68nmyP8WMqUpx69M"
+url="http://209.51.161.242"
+qlibid="ilib1"
 
 dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd $dir

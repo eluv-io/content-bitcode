@@ -1,0 +1,31 @@
+# [library]
+id = "ilib1"
+
+[content] # required!
+name = "BBB Trailer"
+description = "BIG BUCK BUNNY!!!"
+"type.qhash" = "hq__Qmex1eQLpobUvkfTpNgUZmuDJgbFGnn4aVoS5mc4rsPK7p"
+"eluv.access.charge" = "0.0" # was defaulting to 0.0 if not set
+"eluv.access.type" = "free"
+"eluv.type" = "video"
+"eluv.contract_address" = "${caddr}" # 'built-in' substitution variable
+"eluv.name" = "BBB Trailer" # TODO: redundant with 'name' above :/
+"eluv.status" = "Approved"
+
+[content.watermark]
+text = "SHORT FRAGMENT FOR DEMONSTRATION ONLY"
+pos_x = "(w-tw)/8"
+pos_y = "(h-h/8)"
+font_size = "(h/20)"
+
+[avpackage]
+type = "video" # currently this needs to be 'imf' ...?
+sourcepath = "/p/e/demo/media/SampleVideo_720x480_30mb.mp4"
+
+# all items under TagFiles are interpreted as: [tag name] = [path to file to be processed]
+# tag_name becomes the entry name in the content metadata
+
+# specifying different tags with the same file is fine. the command will only upload the part once and will set the same hash on multiple tags
+[parts]
+image = "/p/e/demo/media/THUMBNAILS/bbb.png"
+"eluv.image" = "/p/e/demo/media/THUMBNAILS/bbb.png"
