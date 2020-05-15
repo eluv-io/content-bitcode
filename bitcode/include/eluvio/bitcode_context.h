@@ -28,12 +28,14 @@
 #include "eluvio/argutils.h"
 #include "eluvio/utils.h"
 #include "eluvio/error.h"
+#include "eluvio/version-info.h"
 
 extern "C" char*    JPC(char*);
 extern "C" char*    Write(char*, char*, char*,int);
 extern "C" char*    Read(char*, char*, char*,int);
 
 using namespace std;
+using namespace elv_version;
 
 typedef std::pair<nlohmann::json,E> elv_return_type;
 
@@ -57,6 +59,7 @@ namespace elv_context{
 		}
 		return std::string(formatted.get());
 	}
+
 
 	class GlobalCleanup{
 	public:
@@ -148,8 +151,6 @@ namespace elv_context{
 
 	using namespace std;
 
-
-
 	// std::string goctx = "ctx";
 	// bool CBOR = false;
 	// int chunk_size = 4000000;
@@ -168,7 +169,7 @@ namespace elv_context{
 		elv_return_type make_error(std::string desc, E code){
 			nlohmann::json j;
 			j["message"] = desc;
-			j["code"] = code.getJSON();
+			j["data"] = code.getJSON();
 			return make_pair(j,code);
 		}
 		elv_return_type make_success(){
@@ -412,6 +413,48 @@ namespace elv_context{
 				return make_pair(e.what(), e.id);
 			}
 		}
+		// Call invokes a function on a provided bitcode module and passes the
+		// JSON-encoded arguments. The return value is a JSON text with the result,
+		// or an error (e.g. if the module of function cannot be found).
+		// The main purpose of this function is to create the Elements of an mpd file
+		// that constitute an eluvio channel
+		//
+		elv_return_type ProcessChannelElement(std::string versionHash, std::string libid, std::string objid, std::string targetDuration, int periodNum, double entryPointSec){
+			nlohmann::json j;
+
+			j["targetDuration"] = targetDuration;
+			j["versionHash"] = versionHash;
+			j["periodNum"] = periodNum;
+			j["objectId"] = objid;
+			j["libraryId"] = libid;
+			j["entryPointSec"] = entryPointSec;
+
+			std::string method = "ProcessChannelElement";
+
+			return Call( method, j, goext);
+		}
+
+		elv_return_type ProxyHttp(nlohmann::json& request){
+			nlohmann::json j;
+
+			j["request"] = request;
+
+			std::string method = "ProxyHttp";
+
+			return Call( method, j, goext);
+		}
+
+		elv_return_type CallAdManager(std::string versionHash, nlohmann::json& queryParams){
+			nlohmann::json j;
+
+			j["versionHash"] = versionHash;
+			j["queryParams"] = queryParams;
+
+			std::string method = "CallAdManager";
+
+			return Call( method, j, goext);
+		}
+
 		// Write a debug message to the log. Use the LOG_DEBUG macro for convenience.
 		void Debug(string msg, nlohmann::json fields){
 			log("DEBUG", msg, fields);
@@ -499,17 +542,12 @@ namespace elv_context{
 		// CheckSumPart calculates a checksum of a given content part.
 		// - sum_method:    checksum method ("MD5" or "SHA256")
 		// - qphash:        hash of the content part to checksum
-		// - qihot:         content ID, hash or write token
-		// - qlibid:        optional content library ID if content is in a different
-		//                  library than the one linked to the call context
 		//  Returns the checksum as hex-encoded string
-		elv_return_type CheckSumPart(std::string sum_method, std::string qphash, std::string qihot, std::string qlibid){
+		elv_return_type CheckSumPart(std::string sum_method, std::string qphash){
 			nlohmann::json j;
 
 			j["method"] = sum_method;
 			j["qphash"] = qphash;
-			j["qihot"] = qihot;
-			j["qlibid"] = qlibid;
 
 			std::string method = "QCheckSumPart";
 
@@ -519,17 +557,12 @@ namespace elv_context{
 		// CheckSumFile calculates a checksum of a file in a file bundle
 		// - sum_method:    checksum method ("MD5" or "SHA256")
 		// - file_path:     the path of the file in the bundle
-		// - qihot:         content ID, hash or write token
-		// - qlibid:        optional content library ID if content is in a different
-		//                  library than the one linked to the call context
 		//  Returns the checksum as hex-encoded string
-		elv_return_type CheckSumFile(std::string sum_method, std::string file_path, std::string qihot, std::string qlibid){
+		elv_return_type CheckSumFile(std::string sum_method, std::string file_path){
 			nlohmann::json j;
 
 			j["method"] = sum_method;
 			j["file_path"] = file_path;
-			j["qihot"] = qihot;
-			j["qlibid"] = qlibid;
 
 			std::string method = "QCheckSumFile";
 
@@ -601,7 +634,7 @@ namespace elv_context{
 				LOG_ERROR(this, "SQMDGetString", "inner_error", ret.first.dump());
 				return "";
 			}
-			LOG_INFO(this,"json=",ret.first.get<string>());
+			LOG_INFO(this, "SQMDGetString", "json",ret.first.get<string>());
 			return ret.first.get<string>();
 		}
 
@@ -612,6 +645,16 @@ namespace elv_context{
 			j["path"] = path;
 
 			std::string method = "SQMDGet";
+
+			return Call( method, j, gocore);
+		}
+		elv_return_type SQMDGetJSONResolve(const char *path){
+			nlohmann::json j;
+
+			//j["qihot"] = token;
+			j["path"] = path;
+
+			std::string method = "SQMDGetJSONResolve";
 
 			return Call( method, j, gocore);
 		}
@@ -876,11 +919,11 @@ namespace elv_context{
 			// TODO This needs to point to a Go routine
 			return (char*)"Anonymous";
 		}
-		elv_return_type QPublishContent(std::string hash){
+		elv_return_type QCommitContent(std::string hash){
 			nlohmann::json j;
 
 			j["qhash"] = hash;
-			std::string method = "QPublishContent";
+			std::string method = "QCommitContent";
 
 			return Call( method, j, gocore);
 		}
@@ -986,6 +1029,41 @@ namespace elv_context{
 		}
 
 	};
+
+	elv_return_type GetFullVersionInfo(BitCodeCallContext* ctx){
+		time_t commit_date = (time_t)ELV_VERSION::commit_date;
+		tm* commit_tm  = gmtime(&commit_date);
+		if (commit_tm == nullptr){
+			return make_pair(nlohmann::json({}), E("VERSIONINFO", "commit_date", "null"));
+		}
+		auto date = string_format(
+										"%4d-%2.2d-%2.2dT%2.2d:%2.2d:%2.2dZ",
+										1900 + commit_tm->tm_year,
+										commit_tm->tm_mon,
+										commit_tm->tm_mday,
+										commit_tm->tm_hour,
+										commit_tm->tm_min,
+										commit_tm->tm_sec);
+		auto full = elv_context::string_format("%s@%.10s %s", strcmp(ELV_VERSION::version,"") == 0 ? ELV_VERSION::branch : ELV_VERSION::version,ELV_VERSION::revision, date.c_str());
+    ctx->Callback(200, "application/json", full.length());
+    std::vector<std::uint8_t> jsonData(full.c_str(), full.c_str()+full.length());
+    auto writeRet = ctx->WriteOutput(jsonData);
+    if (writeRet.second.IsError()){
+        return ctx->make_error("WriteOutput failed", writeRet.second);
+    }
+
+		return make_pair(
+			nlohmann::json(
+				{
+					{"full" ,    full},
+					{"version",  ELV_VERSION::version},
+					{"branch", 	 ELV_VERSION::branch},
+					{"revision", ELV_VERSION::revision},
+					{"date" ,    date.c_str()}
+				}
+			),
+			E(false));
+	}
 
 
 	// // TBD json format for init

@@ -894,9 +894,9 @@ elv_return_type ffmpeg_update_cbk_bulk(BitCodeCallContext* ctx, JPCParams& p){
     }else{
         LOG_INFO(ctx, "FinalizeContent", "QID", sstoken.first.c_str(), "QHASH", sstoken.second.c_str());
     }
-    auto ret = ctx->QPublishContent(sstoken.second);
+    auto ret = ctx->QCommitContent(sstoken.second);
     if (ret.second.IsError()){
-        const char* msg = "QPublishContent";
+        const char* msg = "QCommitContent";
         LOG_ERROR(ctx, msg, "ssqhash", sstoken.second.c_str());
         return ctx->make_error(msg,E(msg));
     }
@@ -1159,9 +1159,9 @@ elv_return_type start_stream(BitCodeCallContext* ctx, JPCParams&){
     }else{
         LOG_DEBUG(ctx, "NEW SEGMENT TOKEN", "first", sstoken.first.c_str(), "second", sstoken.second.c_str());
     }
-    auto err = ctx->QPublishContent(sstoken.second);
+    auto err = ctx->QCommitContent(sstoken.second);
     if (err.second.IsError()){
-        const char* msg = "QPublishContent";
+        const char* msg = "QCommitContent";
         LOG_ERROR(ctx, msg, "ssqhash", sstoken.second.c_str());
         return ctx->make_error(msg,E(msg));
     }
