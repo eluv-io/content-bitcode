@@ -100,7 +100,7 @@ END_MODULE_MAP()
 
 ## Creating a state object
 
-The basis of the games is providing 2 choices and remembering where in the game the player currently is.  Below is a functional view of the challenge engine or the state machine.  Note the state data amounts to a string that will never be longer that 16 and a few other ancillary pieces of data for convenience.  The main entry point for the game of the do_challenge method of the engine and that will be wired up directly to the content entry point *described above*.
+The basis of the games is providing 2 choices and remembering where in the game the player currently is.  Below is a functional view of the challenge engine or the state machine.  Note the state data amounts to a string that will never be longer that 16 and a few other ancillary pieces of data for convenience.  The main entry point for the game is the do_challenge method of the engine and that will be wired up directly to the content entry point *described above*.
 
 ```c++
 class ChallengeEngine {
@@ -197,7 +197,7 @@ Notice the content function is almost empty as most of the work for this bitcode
 ```c++
 typedef std::pair<nlohmann::json,E> elv_return_type;
 ```
-elv_return_type is a std::pair<F,S> of [nlohmann::json type](https://nlohmann.github.io/json/) and an eluvio [E type](../bitcode/include/eluvio/error.h). It is important to remember that all inertactions with the fabric return this pair type.  The result is always **first** and is of type **nlohmann::json**, the error is always **second** and is of **eluvio_errors::Error**.
+elv_return_type is a std::pair<F,S> of [nlohmann::json type](https://nlohmann.github.io/json/) and an eluvio [E type](../bitcode/include/eluvio/error.h). **It is important to remember that all interactions with the fabric return this pair type.**  The result is always the **first** element of the std::pair and is of type **nlohmann::json**.  The error is always the **second** element of the pair and is of type **eluvio_errors::Error**.
 
 
 ## Exploring the challenge engine
@@ -242,9 +242,9 @@ The focual point of the bitcode module in this case is the challenge engine.  In
     }
 ```
 
-As this method is called directly by the **content** function, the 2 parameters **ctx** and **p** are the elements of the http request from the game player.  The beginnings of the function call a helper method on the BitCodeCallContext instance to get the players query params.  After checking the pair for error the code then goes on to discover state and a potential vote/choice.  The game always begins with an empty state and no vote present.
+As this method is called directly by the **content** function, the 2 parameters **ctx** and **p** are the elements of the http request from the game player.  At the beginning of the method we call a helper method on the BitCodeCallContext instance to get the players query params from the http request.  After checking the pair for error the code then goes on to discover state and a potential vote/choice.  The game always begins with an empty state and no vote present.
 
-The remainder of the game from a functional view is to decode the state to indicate what game and potential players.  It is beyond the scope of this text to describe the full game logic, but in essence, the game determines its state and next contestants depending on the current state as decoded from the string.  Once the contestants are located by index, the games proceeds to acquire the video playout details of the contestants from the fabric.
+The remainder of the game from a functional view is to decode the current state to determine which game and round as well as potential contestants.  Once the contestants are located by index, the games proceeds to acquire the video playout details of the contestants from the content object's meta data.
 
 ## About the meta data
 
