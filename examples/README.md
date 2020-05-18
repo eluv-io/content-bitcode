@@ -26,7 +26,7 @@ Below is a detailed explanation of how this example works.
 
 # Base module
 
-In order to begin to write the bracket challenge sample (the game), we need to author a bare bones callable piece of content bitcode. *If you have not already, please review [Content Fabric Readme](../README.md)*.
+In order to begin to write the bracket challenge sample (the game), we need to author a bare bones callable piece of content bitcode. *If you have not already, please review [bitcode readme](../README.md)*.
 
 
 Here is a base module:
@@ -96,7 +96,7 @@ BEGIN_MODULE_MAP()
     MODULE_MAP_ENTRY(validate)
 END_MODULE_MAP()
 ```
- The key takeaway is the function **content** and the **MODULE_MAP**. Both concepts can be found in the [README](../README.md).
+ The key takeaway is the function **content** and the **MODULE_MAP**. Both concepts can be found in the [bitcode readme](../README.md).
 
 ## Creating a state object
 
@@ -197,7 +197,7 @@ Notice the content function is almost empty as most of the work for this bitcode
 ```c++
 typedef std::pair<nlohmann::json,E> elv_return_type;
 ```
-elv_return_type is a std::pair<F,S> of [nlohmann::json type](https://nlohmann.github.io/json/) and an eluvio [E type](../inlcude/eluvio/error.h). It is important to remember that all inertactions with the fabric return this pair type.  The result is always **first** and is of type **nlohmann::json**, the error is always **second** and is of **eluvio_errors::Error**.
+elv_return_type is a std::pair<F,S> of [nlohmann::json type](https://nlohmann.github.io/json/) and an eluvio [E type](../bitcode/include/eluvio/error.h). It is important to remember that all inertactions with the fabric return this pair type.  The result is always **first** and is of type **nlohmann::json**, the error is always **second** and is of **eluvio_errors::Error**.
 
 
 ## Exploring the challenge engine
