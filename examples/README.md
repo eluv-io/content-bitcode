@@ -2,15 +2,15 @@
 
 # Eluvio Video Bitcode Samples
 
-There are a number of samples included in the tree. Located at [bitcode/include/eluvio](../bitcode/include/eluvio) wherein all of the directories contain standalone fabric bitcode modules.
+There are a number of samples included in the tree. Located at [bitcode/include/eluvio](../bitcode/include/eluvio) wherein most of the directories contain standalone fabric bitcode modules.
 
 One file in particular [bitcode_content.h](../bitcode/include/eluvio/bitcode_context.h), contains the full description and communication mechanism of the LLVM bitcode extensibility layer for the fabric. For
 information about the bitcode API see [bitcode readme](../README.md)
 
-## Quick Start - Creating a bracket based game.
+## Creating a bracket based game.
 
 - Create bitcode module to serve game
-- Create bitcode class to hold state
+- Create bitcode class to hold and navigate state
 - Provide calling interface for client
 - Provide json response
 
@@ -19,21 +19,89 @@ information about the bitcode API see [bitcode readme](../README.md)
 
 The bitcode layer is intended to provide a mechanism to extend the
 content fabric and provide new utility on top of the distributed nature
-of the fabric.  Once such example is to create a bracket game using the
+of the fabric.  One example is to create a bracket game using the
 fabric's ability to store, retrieve, and link content metadata.  In this game, the user will interact with the game using the a front end that will
 provide a left and right question.  In effect this gives the user the choice between 2 image questions.  The UI for the game asks the user to choose between the 2 possibilities and submit a vote.  The game is implemented in a way that the vote and the previous state are trasmitted
-in the http request, and the response containing the next 2 choices will also include the previous state. The particular implementation that will discussed handles a 16 entry bracket game.  For round one, there will be sixteen entrants, for round two there will be 8 entrants.  The process will continue until a winner is determined.
+in the http request, and the response containing the next 2 choices will also include the previous state. The particular implementation that will be discussed handles a 16 entry bracket game.  For round one, there will be sixteen entrants, for round two there will be 8 entrants.  The process will continue until a winner is determined.
 
-The design for this state machine is fairly straighforward in that the game will be called using and http request containing a query params with a state string and vote (0/1).  The state is a linearized sequence of previous winners of the votes.  Thus a state of "134" would indicate the current vote is in round 1 and the winners of the first three slots are locations 1, 3, and 4 of the initial 16 bracket.  A state of "13469ACF3" would be in round 2 as "13469ACF" would be the first rounds results <em>note there are 8</em>, and 3 would indicate that 3 defeated 1 in the beginning of the second round.
+The design for this state machine is fairly straighforward in that the game will be called using and http request containing a query params with a state string and vote (0/1).  The state is a linearized sequence of previous winners of the votes.  Thus a state of "134" would indicate the current vote is in round 1 and the winners of the first three slots are locations 1, 3, and 4 of the initial 16 bracket *note the array is 0 based*.  A state of "13469ACF3" would be in round 2 as "13469ACF" would be the first round's results *note there are 8*, and 3 would indicate that 3 defeated 1 in the beginning of the second round.
 
 
 Below is a detailed explanation of how this example works.
 
 ### Base module
 
-In order to begin to write the bracket challenge sample (the game), we need to author initialiiy a bare bones callable piece of content bitcode.  <em> If you have not already please review [Content Fabric Readme](../README.md)</em>.
+In order to begin to write the bracket challenge sample (the game), we need to author a bare bones callable piece of content bitcode. *If you have not already, please review [Content Fabric Readme](../README.md)*.
 
-Please review the contents of [basemodule](basemodule.cpp).  The key takeaway if the function **content** and the **MODULE_MAP**. Both concepts can be found in the [README](../README.md).
+
+Here is a base module:
+```c++
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <sstream>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <pthread.h>
+#include <fcntl.h>
+#include <fstream>
+#include <iostream>
+#include <limits.h>
+#include <string>
+#include <unordered_map>
+#include <vector>
+#include <memory>
+#include "eluvio/argutils.h"
+#include "eluvio/fixup-cpp.h"
+#include "eluvio/utils.h"
+#include "eluvio/cddl.h"
+#include "eluvio/el_cgo_interface.h"
+#include "eluvio/bitcode_context.h"
+#include "eluvio/media.h"
+
+using namespace elv_context;
+
+elv_return_type content(BitCodeCallContext* ctx, JPCParams& p){
+    const char* msg = "Nothing done yet";
+    return ctx->make_error(msg, E(msg).Kind(E::Invalid));
+}
+
+int cddl_num_mandatories = 4;
+char *cddl = (char*)"{"
+    "\"title\" : bytes,"
+    "\"description\" : text,"
+    "\"video\" : eluv.video,"
+    "\"image\" : eluv.img"
+    "}";
+
+/*
+ * Validate content components.
+ *
+ * Returns:
+ *  -1 in case of unexpected failure
+ *   0 if valid
+ *  >0 the number of validation problems (i.e. components missing or wrong)
+ */
+elv_return_type validate(BitCodeCallContext* ctx, JPCParams& p){
+    int found = cddl_parse_and_check(ctx, cddl);
+
+    char valid_pct[4];
+    sprintf(valid_pct, "%d", (uint16_t)(found * 100)/cddl_num_mandatories);
+
+    std::vector<uint8_t> vec(valid_pct, valid_pct + 4);
+    auto res = ctx->WriteOutput(vec);
+    if (res.second.IsError()){
+        return ctx->make_error("write output failed", res.second);
+    }
+    return ctx->make_success();
+}
+
+BEGIN_MODULE_MAP()
+    MODULE_MAP_ENTRY(content)
+    MODULE_MAP_ENTRY(validate)
+END_MODULE_MAP()
+```
+ The key takeaway is the function **content** and the **MODULE_MAP**. Both concepts can be found in the [README](../README.md).
 
 ##### Creating a state object
 
@@ -130,11 +198,11 @@ elv_return_type content(BitCodeCallContext* ctx, JPCParams& p){
 }
 ```
 
-Notice the content function is almost empty as most of the work for this bitcode module is within the challenge engine.  Altgough the [main README](../README.md) calls this out, note that variable path above (**auto path;**) is a
+Notice the content function is almost empty as most of the work for this bitcode module is within the challenge engine. Note that variable path above (**auto path;**) is a
 ```c++
 typedef std::pair<nlohmann::json,E> elv_return_type;
 ```
-this is a std::pair<F,S> of and and [nlohmann::json type](https://nlohmann.github.io/json/) to an eluvio [E type](../inlcude/eluvio/error.h). It is important to remember that all inertactions with the fabric with return this pair type.  The result is always **first** and is of type nlohmann::json, the error is second and is of eluvio_errors::Error.
+elv_return_type is a std::pair<F,S> of [nlohmann::json type](https://nlohmann.github.io/json/) and an eluvio [E type](../inlcude/eluvio/error.h). It is important to remember that all inertactions with the fabric return this pair type.  The result is always **first** and is of type **nlohmann::json**, the error is always **second** and is of **eluvio_errors::Error**.
 
 
 ##### Exploring the challenge engine
@@ -181,7 +249,7 @@ The focual point of the bitcode module in this case is the challenge engine.  In
 
 As this method is called directly by the **content** function, the 2 parameters **ctx** and **p** are the elements of the http request from the game player.  The beginnings of the function call a helper method on the BitCodeCallContext instance to get the players query params.  After checking the pair for error the code then goes on to discover state and a potential vote/choice.  The game always begins with an empty state and no vote present.
 
-The remainder of the game from a functional view is to decode the state to indicate what game and potential players.  It is beyond the scope of this text to describe the full game logic, but in essence, the game determines its state and next contestants depending on the current state as decoded from the string.  Once the contenstants are located by index, the games proceeds to acquire the video playout details of the contestants from the fabric.
+The remainder of the game from a functional view is to decode the state to indicate what game and potential players.  It is beyond the scope of this text to describe the full game logic, but in essence, the game determines its state and next contestants depending on the current state as decoded from the string.  Once the contestants are located by index, the games proceeds to acquire the video playout details of the contestants from the fabric.
 
 ##### About the meta data
 
@@ -217,8 +285,41 @@ From here the code creates a uunified set list of all playout options for easier
 
 The snippet of the method urls, demonstrates how we use the fabric method of **SQMDGetJSONResolve** to have the fabric resolve meta data links.
 
-##### Fabric API (deeper dive)
+##### Fabric Response
 
+Creating the fabric response is relatively simple thanks in part to the BitCodeCallContext's make_error and make_success methods.  They each take a respective error of nlohmann::json for input.  In the case of success, we merely return a json result set consisting of the state and a new pair of contestants.  In the case of a round change, (*eg round of 16 to round of 8*) the result would have the new round video to enable transition.  Finally, at the end there can be only one winner which is announced in its own json result.  The method urls handles all of the results except for the winner which is calculated in do_challenge itself.
+
+below is a snippet from the urls method where the rsult json is calculated and returned.
+```c++
+            std::stringstream  oss;
+            oss    << "{\"videos\" : [";
+            if (m_is_round_change){
+                auto round_meta = rounds[m_round]["/"].get<std::string>();
+                auto hash = round_meta.substr(qfabLoc0 + strlen(qfab_pre), round_meta.find("/", qfabLoc0 + strlen(qfab_pre))-(qfabLoc0 + strlen(qfab_pre)));
+                std::string round_id = "round";
+                std::string round_label = round_id + std::to_string(m_round);
+                insert_video(oss,round_label, round_id, hash);
+                oss         << ",";
+            }
+            insert_video(oss, video0_label, std::to_string(0), hash0);
+            oss         << ",";
+            insert_video(oss, video1_label, std::to_string(1), hash1);
+            oss         << "],\"state\":\"" << m_state << "\"}";
+            std::string retval = oss.str();
+            std::vector<unsigned char> json_bytes;
+            copy(istream_iterator<unsigned char>(oss), istream_iterator<unsigned char>(), back_inserter(json_bytes));
+            auto p = ctx->Callback(200, "application/json", json_bytes.size());
+            if (p.second.IsError()){
+                return ctx->make_error("callback failure", p.second);
+            }
+            p = ctx->WriteOutput(json_bytes);
+            if (p.second.IsError()){
+                return ctx->make_error("writeoutput failure", p.second);
+            }
+            nlohmann::json j = nlohmann::json::parse(retval);
+            return ctx->make_success(j);
+```
+The code above create a std::stringstream or a stream based on a stream.  The operator `<<` provides a convenient mechanism to add new elements to the stream.  Note the strings are streamed accordingly to the stream and then a memory buffer is created based on the stream and written back to the fabric and not simply returned.  The WriteOutput mehod on the context ensures that all output is directed to the response.
 
 #### Next Steps
 
