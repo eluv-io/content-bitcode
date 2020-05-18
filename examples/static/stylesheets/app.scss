@@ -1,0 +1,538 @@
+@import "~elv-components-js/src/stylesheets/defaults";
+@import "~elv-components-js/src/stylesheets/styles";
+
+$header-height: 3rem;
+
+html {
+  font-size: 14px;
+}
+
+body,
+.app {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  min-height: 100%;
+}
+
+.app-container {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+
+  // Header + page
+  grid-template-rows: auto 1fr;
+
+  max-height: 100%;
+}
+
+h3 {
+  color: $elv-color-text-light;
+  font-size: $elv-font-xl;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  max-height: $header-height;
+  min-height: $header-height;
+  padding: $elv-spacing-xs $elv-spacing-s;
+
+  .logo {
+    cursor: pointer;
+    display: flex;
+    height: 100%;
+    max-width: 8rem;
+    width: auto;
+  }
+
+  h1 {
+    @include elv-no-select;
+    color: $elv-color-text-light;
+    font-size: $elv-font-xxl;
+    font-weight: normal;
+    margin-left: $elv-spacing-s;
+  }
+}
+
+.header-logo {
+  align-items: flex-end;
+  display: flex;
+  flex: 1 1 0;
+}
+
+.source-link {
+  align-items: center;
+  border: 1px solid $elv-color-mediumgray;
+  border-radius: 3px;
+  display: flex;
+  font-size: $elv-font-m;
+  padding: $elv-spacing-xxs $elv-spacing-xs;
+  width: auto;
+
+  .github-icon {
+    height: $elv-font-xxl;
+    margin-right: $elv-spacing-xs;
+    width: $elv-font-xxl;
+  }
+
+  &:hover {
+    background-color: $elv-color-lightestgray;
+  }
+}
+
+.content-info-container {
+  align-items: center;
+  background: $elv-color-lightergray;
+  display: flex;
+  padding: $elv-spacing-xs $elv-spacing-s;
+
+  .content-input {
+    align-items: center;
+    display: flex;
+    flex: 5 1 0;
+
+    input {
+      flex: 1 1;
+      font-size: $elv-font-l;
+      width: 100%;
+    }
+  }
+
+  .available-content-select {
+    flex: 1 1 0;
+    margin-left: $elv-spacing-s;
+  }
+
+  input,
+  button,
+  select {
+    height: 2rem;
+  }
+
+  input,
+  button {
+    border: 0;
+    border-radius: 0;
+    outline: 0;
+  }
+
+  select {
+    background-color: $elv-color-bg-white;
+    border: 0;
+    color: $elv-color-text-light;
+    font-size: $elv-font-m;
+    outline: 1px solid $elv-color-lightgray;
+    padding: 0 $elv-spacing-xs;
+  }
+}
+
+.content-title {
+  align-items: center;
+  color: $elv-color-text-dark;
+  display: flex;
+  font-size: 2rem;
+  font-weight: 300;
+  justify-content: center;
+
+  &.error {
+    color: $elv-color-mediumred;
+    font-size: $elv-font-xxl;
+  }
+}
+
+.content-title-sample {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+
+  h1 {
+    font-size: 1.6rem;
+  }
+}
+
+.video-container {
+  background: $elv-color-black;
+  display: flex;
+  justify-content: center;
+  margin-left: $elv-spacing-m;
+  min-height: 100%;
+  position: relative;
+
+  .video-loading {
+    min-height: 100%;
+    width: 100%;
+  }
+
+  video {
+    background: $elv-color-black;
+    cursor: pointer;
+    max-height: 100%;
+    max-width: 100%;
+    min-height: 100%;
+    width: 100%;
+  }
+
+  .video-playback-level {
+    background-color: $elv-color-bg-white;
+    position: absolute;
+    right: 0;
+    top: 0;
+  }
+}
+
+.video-container,
+video {
+  border-radius: $elv-spacing-xxs;
+}
+
+.segments-container {
+  display: flex;
+  flex-direction: column;
+  max-height: 100%;
+  overflow-x: hidden;
+  padding-left: $elv-spacing-m;
+  width: 100%;
+
+  .controls-header {
+    justify-content: space-between;
+    padding: $elv-spacing-s $elv-spacing-xs $elv-spacing-xxs;
+  }
+
+  .bandwidth-estimate {
+    display: inline-block;
+    min-width: 7rem;
+    text-align: right;
+  }
+}
+
+.segments-table {
+  border: 1px solid $elv-color-lightgray;
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  font-size: $elv-font-m;
+  max-height: 100%;
+  overflow-y: auto;
+
+  .segments {
+    flex: 1 1 0;
+    overflow-y: auto;
+  }
+
+  .segments-header,
+  .segment-row {
+    align-items: center;
+    display: grid;
+    grid-template-columns: 3rem 1fr 6rem 8rem 8rem 2fr;
+    height: 2.2rem;
+    margin-right: $elv-spacing-s;
+    text-align: center;
+  }
+
+  .segments-header {
+    border-bottom: 1px solid $elv-color-lightgray;
+    font-weight: 500;
+  }
+
+  .segment-row {
+    &.even {
+      background: $elv-color-lightergray;
+    }
+
+    * {
+      @include elv-ellipsis
+    }
+  }
+
+  .timing {
+    align-items: flex-end;
+    color: $elv-color-white;
+    display: flex;
+    font-size: $elv-font-s;
+    height: 100%;
+    position: relative;
+
+    .duration {
+      background: $elv-color-gray;
+      height: 50%;
+      position: absolute;
+      text-align: right;
+      width: 100%;
+    }
+
+    .latency,
+    .download {
+      align-items: center;
+      display: flex;
+      justify-content: center;
+      overflow: hidden;
+      text-align: center;
+    }
+
+    .latency {
+      background: $elv-color-darkblue;
+      box-shadow: $elv-color-black 1px 2px 3px;
+      height: 70%;
+      z-index: 15;
+    }
+
+    .download {
+      background: $elv-color-mediumblue;
+      box-shadow: $elv-color-black 1px 2px 3px;
+      height: 60%;
+      z-index: 10;
+    }
+  }
+}
+
+.controls-header {
+  display: flex;
+  font-size: $elv-font-l;
+  font-weight: 600;
+  justify-content: center;
+  margin-bottom: $elv-spacing-xxs;
+  padding: 0;
+
+  .copy-button {
+    align-items: center;
+    display: flex;
+
+    svg {
+      height: $elv-font-xl;
+    }
+  }
+}
+
+.controls-section {
+  overflow-y: auto;
+
+  .controls-container {
+    align-items: center;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    margin-bottom: $elv-spacing-s;
+    padding: 0 $elv-spacing-m;
+  }
+
+  .control-row {
+    display: flex;
+    justify-content: flex-start;
+    margin: $elv-spacing-xxs 0;
+    min-width: 100%;
+
+    button {
+      flex: 1 1;
+      margin-right: $elv-spacing-xs;
+
+      &.-elv-button {
+        min-width: $elv-spacing-l;
+      }
+    }
+  }
+
+  .playout-url {
+    color: $elv-color-text-lightest;
+    font-size: $elv-font-xs;
+    max-width: 100%;
+    min-width: 100%;
+    word-break: break-all;
+  }
+
+  select {
+    font-size: $elv-font-m;
+    height: 2.5rem;
+    margin-top: $elv-spacing-xxs;
+    padding: 0 $elv-spacing-xs;
+    text-align: center;
+    width: 100%;
+  }
+}
+
+.graph-container {
+  align-items: center;
+  margin: auto;
+  max-width: 80vw;
+}
+
+.app-version {
+  display: none;
+}
+
+// Layout
+
+.selection {
+  grid-area: selection;
+}
+
+.title {
+  grid-area: title;
+  min-height: 3rem;
+}
+
+.video {
+  grid-area: video;
+  max-height: calc(60vh - 7rem);
+  min-height: calc(60vh - 7rem);
+}
+
+.segments {
+  grid-area: segments;
+}
+
+.controls {
+  grid-area: controls;
+}
+
+// Layout
+
+main {
+  display: grid;
+  flex-grow: 1;
+  grid-template-areas: "selection selection" "title empty" "video controls" "segments controls";
+  grid-template-columns: 3fr minmax(25%, 1fr);
+  grid-template-rows: 3rem 4rem 3fr 2fr;
+  max-height: calc(100% - #{$header-height});
+  padding-bottom: $elv-spacing-m;
+
+  &.display-app {
+    grid-template-areas: "video controls" "segments controls";
+    grid-template-rows: 3fr 2fr;
+    max-height: 100%;
+
+    .video-container {
+      margin-top: $elv-spacing-s;
+    }
+
+    .video-container,
+    video {
+      border-radius: $elv-spacing-xs;
+    }
+
+    .video {
+      max-height: 60vh;
+      min-height: 60vh;
+    }
+  }
+
+  .controls {
+    padding-top: $elv-spacing-xs;
+  }
+}
+
+@media only screen and (max-width: 1000px) {
+  html {
+    font-size: 10px;
+  }
+
+  main {
+    display: flex;
+    flex-direction: column;
+
+    &.display-app {
+      grid-template-areas: "video video" "segments controls";
+      grid-template-columns: 10fr 1fr;
+      grid-template-rows: 3fr 2fr;
+    }
+  }
+
+  .content-info-container {
+    min-height: 4rem;
+
+    .content-input {
+      flex: 2 1 0;
+
+      button {
+        margin-left: $elv-spacing-xs;
+        max-width: 10rem;
+        min-width: 10rem;
+      }
+    }
+
+    .available-content-select {
+      flex: 1 1 0;
+    }
+
+    input,
+    button,
+    select {
+      // sass-lint:disable no-important
+      font-size: $elv-font-xl !important;
+      // sass-lint:enable no-important
+      height: 3rem;
+    }
+  }
+
+  .video {
+    flex: 1 1 auto;
+    max-height: 100%;
+
+    .video-container,
+    video {
+      border-radius: 0;
+      min-height: 100%;
+    }
+  }
+
+  .video-container {
+    margin-left: 0;
+  }
+
+  .controls-section {
+    overflow-y: unset;
+  }
+
+  .controls {
+    margin-top: $elv-spacing-m;
+    padding: 0 $elv-spacing-l;
+
+    .controls-header {
+      font-size: $elv-font-xxl;
+      margin-bottom: $elv-spacing-m;
+    }
+
+    .control-row {
+      justify-content: center;
+      margin-bottom: $elv-spacing-s;
+
+      button {
+        margin-right: $elv-spacing-s;
+        max-width: 40%;
+        min-height: 4rem;
+
+        &.-elv-button {
+          font-size: $elv-font-xl;
+        }
+      }
+    }
+  }
+
+  .segments {
+    min-height: 20rem;
+    overflow-y: hidden;
+  }
+
+  .segments-table {
+    font-size: $elv-font-l;
+  }
+}
+
+.dev-mode-button {
+  background-color: transparent;
+  border: 0;
+  bottom: 0;
+  height: 1rem;
+  left: 0;
+  position: absolute;
+  width: 0.5rem;
+}
+
+// Make things larger on mobile devices
+@media only screen and (max-device-width: 1000px) {
+  html {
+    font-size: 16px;
+  }
+}
+
