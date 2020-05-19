@@ -248,7 +248,7 @@ The remainder of the game from a functional view is to decode the current state 
 
 ## About the meta data
 
-As the game details are stored in the current content objects meta data, the game looks in the current object at root (/) to aquire the game data.  This data accomodates having 2 brackets of the same contestants.  Thus bracket A will have 16 contestants with one set of videos brackets b will again have 16 of the same contestants but with a different playour URL. All of this info is stored in the content objects metadata at its root.
+As the game details are stored in the current content objects meta data, the game looks in the current object at root (/) to acquire the game data.  This data accomodates having 2 brackets of the same contestants.  Thus bracket A will have 16 contestants with one set of videos, brackets b will again have 16 of the same contestants but with a different playour URL. All of this info is stored in the content objects metadata at its root.
 
 ```c++
     auto entries = ctx->SQMDGetJSON("/");
@@ -258,7 +258,7 @@ As the game details are stored in the current content objects meta data, the gam
     // entries now has the contestant entries for both brackets
 ```
 
-From here the code creates a uunified set list of all playout options for easier retrieval using the engine method of make_list.  Once the lists are formed the bitcode proceeds to create the playout URL utilizing fabric meta links to resolve the actual playout in another content object.
+From here the code creates a unified list of all playout options for easier retrieval using the engine method **make_list**.  Once the lists are formed, the bitcode proceeds to create the playout URL utilizing fabric meta links to resolve the actual playout in another content object.
 
 ```c++
     elv_return_type urls(BitCodeCallContext* ctx, int video0, int video1, nlohmann::json& entries_a, nlohmann::json& entries_b,nlohmann::json& rounds){
@@ -282,7 +282,7 @@ The snippet of the method urls, demonstrates how we use the fabric method of **S
 
 ## Fabric Response
 
-Creating the fabric response is relatively simple thanks in part to the BitCodeCallContext's make_error and make_success methods.  They each take a respective error of nlohmann::json for input.  In the case of success, we merely return a json result set consisting of the state and a new pair of contestants.  In the case of a round change, (*eg round of 16 to round of 8*) the result would have the new round video to enable transition.  Finally, at the end there can be only one winner which is announced in its own json result.  The method urls handles all of the results except for the winner which is calculated in do_challenge itself.
+Creating the fabric response is relatively simple thanks in part to the BitCodeCallContext's make_error and make_success methods.  They each take a respective error oo nlohmann::json for input.  In the case of success, we merely return a json result set consisting of the state and a new pair of contestants.  In the case of a round change, (*eg round of 16 to round of 8*) the result would have the new round video to enable transition.  Finally, at the end there can be only one winner which is announced in its own json result.  The method **urls** handles all of the results except for the winner which is calculated in do_challenge itself.
 
 below is a snippet from the urls method where the rsult json is calculated and returned.
 ```c++
@@ -314,11 +314,11 @@ below is a snippet from the urls method where the rsult json is calculated and r
             nlohmann::json j = nlohmann::json::parse(retval);
             return ctx->make_success(j);
 ```
-The code above create a std::stringstream or a stream based on a stream.  The operator `<<` provides a convenient mechanism to add new elements to the stream.  Note the strings are streamed accordingly to the stream and then a memory buffer is created based on the stream and written back to the fabric and not simply returned.  The WriteOutput mehod on the context ensures that all output is directed to the response.
+The code above create a std::stringstream or a stream based on a string.  The operator `<<` provides a convenient mechanism to add new elements to the stream.  Note the strings are streamed in order. The stream is then converted to a memory buffer which is then written back to the fabric.  The WriteOutput method on the BitCodeCallContext ensures that all output is directed appropriately to the http response.
 
 ## Next Steps
 
-At this point you should have some idea of what Eluvio's Content Fabric bitcode API looks like.  You are familiar with the details of how to author and wire up an Http request on a content object that provides a stateful game to an http consumer.  We encourage you to explore some of the other bitcode modules we have provided as they demonstrate a wide range of problems and solutions.
+At this point you should have some idea of what Eluvio's Content Fabric bitcode API looks like.  You are familiar with the details of how to author and wire up an http request on a content object that provides a stateful game to an http consumer.  We encourage you to explore some of the other bitcode modules we have provided as they demonstrate a wide range of problems and solutions.
 
 [static video/audio](../bitcode/avmaster/avmaster2000.cpp)
 
