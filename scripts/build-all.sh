@@ -54,3 +54,14 @@ $clang_bin $shared_flags \
     -c search.cpp -o search.bc
 )
 
+(
+cd proxy
+$clang_bin $shared_flags \
+   -c proxy.cpp -o proxy.bc
+)
+
+(
+cd challenge
+$clang_bin $shared_flags \
+    -c challenge.cpp -o challenge.bc
+)

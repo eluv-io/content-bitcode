@@ -15,7 +15,9 @@ bclist="$qspecdir/avmaster/avmaster2000.imf.bc \
         $qspecdir/avlive/avlive.rtp.bc \
         $qspecdir/submission/submission.bc \
         $qspecdir/video/video.bc \
-        $qspecdir/library/library.bc"
+        $qspecdir/library/library.bc \
+        $qspecdir/challenge/challenge.bc \
+        $qspecdir/proxy/proxy.bc"
 
 URL=http://localhost:8008
 HDR="-H Accept: application/json -H Content-Type: application/json"

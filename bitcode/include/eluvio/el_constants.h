@@ -3,6 +3,9 @@
 typedef float elv_fp;
 const char*  eluvio_image_key = "image";
 const char* base_download_file = "download.mp4";
+const char*  eluvio_public_name_key = "/public/name";
+const char*  eluvio_public_image_key = "/public/image";
+const char*  eluvio_public_description_key = "/public/description";
 
 namespace ffmpeg_elv_constants{
     const char*  input_list_start_precision = "%.6f";

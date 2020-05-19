@@ -41,19 +41,19 @@ namespace eluvio_errors{
         Error(bool is_error) : _is_error(is_error){}
         template <typename... remainder>
         Error(std::string p1, remainder... rem) : _is_error(true){
-            Fields["Op"] = p1;
+            Fields["op"] = p1;
             init(rem...);
         }
         template <typename... remainder>
         Error(const char* p1, remainder... rem) : _is_error(true){
-            Fields["Op"] = p1;
+            Fields["op"] = p1;
             init(rem...);
         }
         Error(std::string msg) : _is_error(true){
-            Fields["Op"] = msg;
+            Fields["op"] = msg;
         }
         Error(const char* msg) : _is_error(true){
-            Fields["Op"] = msg;
+            Fields["op"] = msg;
         }
         // template <typename... remainder>
         // Error(int p1, remainder... rem){}
