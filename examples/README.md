@@ -7,7 +7,7 @@ There are a number of samples included in the tree. Located at [bitcode/include/
 One file in particular [bitcode_content.h](../bitcode/include/eluvio/bitcode_context.h), contains the full description and communication mechanism of the LLVM bitcode extensibility layer for the fabric. For
 information about the bitcode API see [bitcode readme](../README.md)
 
-# Creating a bracket based game.
+# Creating a bracket based game to deliver content video.
 
 - Create bitcode module to serve game
 - Create bitcode class to hold and navigate state
@@ -15,9 +15,9 @@ information about the bitcode API see [bitcode readme](../README.md)
 - Provide json response
 
 
-# The bracket game
+# The video bracket game
 
-The bitcode layer provides a mechanism to extend the content fabric and provide new utility on top of the distributed nature of the fabric.  One example is to create a bracket game using the fabric's ability to store, retrieve, and link content metadata.  In this game, the user will interact with the game using the a front end that will provide a left and right question.  In effect this gives the user the choice between 2 image questions.  The UI for the game asks the user to choose between the 2 possibilities and submit a vote.  The game is implemented in a way that the vote and the previous state are trasmitted in the http request, and the response containing the next 2 choices will also include the previous state. The particular implementation that will be discussed handles a 16 entry bracket game.  For round one, there will be sixteen entrants, for round two there will be 8 entrants.  The process will continue until a winner is determined.
+The bitcode layer provides a mechanism to extend the content fabric and provide new utility on top of the distributed nature of the fabric.  One example is to create a bracket game using the fabric's ability to store, retrieve, and link content metadata that references other content video in the fabric.  In this game, the user will interact with the game using the a front end that will provide a left and right question.  In effect this gives the user the choice between 2 video questions.  The UI for the game asks the user to choose between the 2 possibilities and submit a vote.  The game is implemented in a way that the vote and the previous state are trasmitted in the http request, and the response containing the next 2 choices will also include the previous state. The particular implementation that will be discussed handles a 16 entry bracket game.  For round one, there will be sixteen entrants, for round two there will be 8 entrants.  The process will continue until a winner is determined.
 
 The design for this state machine is fairly straighforward in that the game will be called using an http request containing query params with a state string and vote (0/1).  The state is a linearized sequence of previous winners of the votes.  Thus a state of "134" would indicate the current vote is in round 1 and the winners of the first three slots are locations 1, 3, and 4 of the initial 16 bracket *note the array is 0 based*.  A state of "13469ACF3" would be in round 2 as "13469ACF" would be the first round's results *note there are 8*, and 3 would indicate that 3 defeated 1 in the beginning of the second round.
 
